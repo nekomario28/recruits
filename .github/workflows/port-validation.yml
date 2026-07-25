@@ -1,0 +1,60 @@
+name: NeoForge 1.21.1 Port Validation
+on:
+  push:
+    branches: [port/neoforge-1.21.1]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Build
+        run: |
+          chmod +x gradlew
+          ./gradlew clean build --stacktrace
+      - name: Server smoke test
+        shell: bash
+        run: |
+          mkdir -p run
+          echo eula=true > run/eula.txt
+          timeout 240s ./gradlew runServer --args nogui > server-smoke.log 2>&1 & pid=$!
+          ready=0
+          for i in $(seq 1 120); do
+            grep -Eq 'Done \([0-9.]+s\)!|For help, type "help"' server-smoke.log && ready=1 && break
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 2
+          done
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          cat server-smoke.log
+          test "$ready" -eq 1
+      - name: Client smoke test
+        shell: bash
+        run: |
+          timeout 240s xvfb-run -a ./gradlew runClient > client-smoke.log 2>&1 & pid=$!
+          ready=0
+          for i in $(seq 1 120); do
+            grep -Eq 'Sound engine started|OpenAL initialized|Reloading ResourceManager|Created: [0-9]+x[0-9]+' client-smoke.log && ready=1 && break
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 2
+          done
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          cat client-smoke.log
+          test "$ready" -eq 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recruits-validation-logs
+          path: |
+            server-smoke.log
+            client-smoke.log
+            run/logs/**
+            build/reports/**
