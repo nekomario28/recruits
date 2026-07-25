@@ -121,7 +121,9 @@ public class FactionEvents {
         MinecraftServer server = level.getServer();
         PlayerTeam team = server.getScoreboard().getPlayerTeam(teamName);
         int cost = RecruitsServerConfig.FactionCreationCost.get();
-        if(banner == null) banner = Items.BROWN_BANNER.getDefaultInstance();
+        if (banner == null || banner.isEmpty()) {
+            banner = Items.BROWN_BANNER.getDefaultInstance();
+        }
         CompoundTag nbt = saveItemStack(banner, level);
 
         if (team != null) {

@@ -490,7 +490,7 @@ public class CommandEvents {
     }
 
     @SubscribeEvent
-    public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+    public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         CompoundTag playerData = event.getEntity().getPersistentData();
         CompoundTag data = playerData.getCompound(Player.PERSISTED_NBT_TAG);
             if (!data.contains("MaxRecruits")) data.putInt("MaxRecruits", RecruitsServerConfig.MaxRecruitsForPlayer.get());

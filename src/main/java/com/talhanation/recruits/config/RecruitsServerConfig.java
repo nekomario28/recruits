@@ -4,14 +4,12 @@ import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import com.electronwill.nightconfig.core.io.WritingMode;
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
 import net.neoforged.neoforge.common.ModConfigSpec;
-import net.neoforged.fml.common.EventBusSubscriber;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-@EventBusSubscriber
 public class RecruitsServerConfig {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
     public static ModConfigSpec SERVER;

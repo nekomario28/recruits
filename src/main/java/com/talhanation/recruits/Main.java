@@ -1,6 +1,7 @@
 package com.talhanation.recruits;
 
 import com.talhanation.recruits.client.gui.overlay.ClaimOverlayManager;
+import com.talhanation.recruits.client.events.ClientEvent;
 import com.talhanation.recruits.client.events.CommandCategoryManager;
 import com.talhanation.recruits.client.events.KeyEvents;
 import com.talhanation.recruits.client.events.ClientPlayerEvents;
@@ -12,6 +13,7 @@ import com.talhanation.recruits.commands.PatrolSpawnCommand;
 import com.talhanation.recruits.commands.RecruitsAdminCommands;
 import com.talhanation.recruits.config.RecruitsClientConfig;
 import com.talhanation.recruits.config.RecruitsServerConfig;
+import com.talhanation.recruits.entities.AbstractChunkLoaderEntity;
 import com.talhanation.recruits.init.ModBlocks;
 import com.talhanation.recruits.init.ModEntityTypes;
 import com.talhanation.recruits.init.ModItems;
@@ -62,6 +64,7 @@ public class Main {
 
         modEventBus.addListener(this::setup);
         modEventBus.addListener(this::registerPayloads);
+        modEventBus.addListener(AbstractChunkLoaderEntity::registerTicketController);
         ModBlocks.BLOCKS.register(modEventBus);
         ModPois.POIS.register(modEventBus);
         ModProfessions.PROFESSIONS.register(modEventBus);
@@ -70,9 +73,13 @@ public class Main {
         ModEntityTypes.ENTITY_TYPES.register(modEventBus);
 
         modEventBus.addListener(this::addCreativeTabs);
+        modEventBus.addListener(AttributeEvent::entityAttributeEvent);
 
         if (dist == Dist.CLIENT) {
             modEventBus.addListener(Main.this::clientSetup);
+            modEventBus.addListener(ClientEvent::entityRenderersEvent);
+            modEventBus.addListener(ClientEvent::layerDefinitions);
+            modEventBus.addListener(ModScreens::registerMenuScreens);
             modEventBus.addListener(ModShortcuts::registerBindings);
         }
 
@@ -92,12 +99,10 @@ public class Main {
         NeoForge.EVENT_BUS.register(new VillagerEvents());
         NeoForge.EVENT_BUS.register(new PillagerEvents());
         NeoForge.EVENT_BUS.register(new CommandEvents());
-        NeoForge.EVENT_BUS.register(new DebugEvents());
         NeoForge.EVENT_BUS.register(new FactionEvents());
         NeoForge.EVENT_BUS.register(new DamageEvent());
         NeoForge.EVENT_BUS.register(new UpdateChecker());
         NeoForge.EVENT_BUS.register(new ClaimEvents());
-        NeoForge.EVENT_BUS.register(this);
 
         isMusketModLoaded = ModList.get().isLoaded("musketmod");//MusketMod
         isSmallShipsLoaded = ModList.get().isLoaded("smallships");//small ships
@@ -236,10 +241,8 @@ public class Main {
         }
     }
 
-    @SubscribeEvent
     @OnlyIn(Dist.CLIENT)
     public void clientSetup(FMLClientSetupEvent event) {
-        event.enqueueWork(ModScreens::registerMenus);
         NeoForge.EVENT_BUS.register(new KeyEvents());
         NeoForge.EVENT_BUS.register(new ClientPlayerEvents());
         NeoForge.EVENT_BUS.register(new ClaimOverlayManager());

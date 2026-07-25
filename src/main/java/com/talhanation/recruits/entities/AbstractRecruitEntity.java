@@ -1200,8 +1200,7 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
         if(isPlayerTarget) return InteractionResult.PASS;
 
         if (this.getCommandSenderWorld().isClientSide) {
-            boolean flag = this.isOwnedBy(player) || !this.canBeHired();
-            return flag ? InteractionResult.CONSUME : InteractionResult.PASS;
+            return this.canBeHired() ? InteractionResult.SUCCESS : InteractionResult.CONSUME;
         } else {
             if (player.isCreative() && player.getItemInHand(hand).getItem().equals(ModItems.RECRUIT_SPAWN_EGG.get())){
                 openDebugScreen(player);
@@ -1243,9 +1242,18 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
                     return InteractionResult.SUCCESS;
                 }
             }
-            else if(this.isOwned() && this.getTeam() != null && !player.getUUID().equals(this.getOwnerUUID()) &&
-                    FactionEvents.recruitsFactionManager.getFactionByStringID(this.getTeam().getName()).getTeamLeaderUUID().equals(player.getUUID())){
-                    Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> (ServerPlayer) player), new MessageToClientOpenTakeOverScreen(this.getUUID()));
+            else if (this.isOwned()
+                    && this.getTeam() != null
+                    && !player.getUUID().equals(this.getOwnerUUID())) {
+                RecruitsFaction faction = FactionEvents.recruitsFactionManager
+                        .getFactionByStringID(this.getTeam().getName());
+                if (faction != null && faction.getTeamLeaderUUID().equals(player.getUUID())) {
+                    Main.SIMPLE_CHANNEL.send(
+                            RecruitsPacketDistributor.PLAYER.with(() -> (ServerPlayer) player),
+                            new MessageToClientOpenTakeOverScreen(this.getUUID())
+                    );
+                    return InteractionResult.SUCCESS;
+                }
             }
             else if (!this.isOwned() && !isPlayerTarget && this.canBeHired()) {
                 this.openHireGUI(player);

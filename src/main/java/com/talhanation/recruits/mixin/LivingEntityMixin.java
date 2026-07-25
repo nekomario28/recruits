@@ -1,22 +1,29 @@
 package com.talhanation.recruits.mixin;
 
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.Saddleable;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.entity.animal.Animal;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(LivingEntity.class)
 public class LivingEntityMixin {
-    /*
-    @SuppressWarnings("DataFlowIssue")    @Inject(method = "travelRidden", at = @At(value = "HEAD", target = "Lnet/minecraft/world/entity/LivingEntity;travelRidden(Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/phys/Vec3;)V"), cancellable = true, remap = false)    private void TravelWhenRecruitsRides(LivingEntity entity, Vec3 vec3, CallbackInfo ci) {
-        if (((LivingEntity)(Object)this) instanceof Saddleable && ((LivingEntity)(Object)this).isVehicle() && entity instanceof AbstractRecruitEntity) {
-            ((LivingEntity)(Object)this).travel(vec3);
-            ci.cancel();
+    @Inject(method = "hurt", at = @At("HEAD"), remap = false)
+    private void recruits$targetAttackerWhenMountIsHurt(
+            DamageSource source, float amount,
+            CallbackInfoReturnable<Boolean> callback
+    ) {
+        if ((Object) this instanceof Animal animal
+                && animal.isAlive()
+                && animal.isVehicle()
+                && animal.getControllingPassenger()
+                instanceof AbstractRecruitEntity recruit
+                && source.getEntity() instanceof LivingEntity attacker
+                && recruit.canAttack(attacker)) {
+            recruit.setTarget(attacker);
         }
     }
-    */
 }

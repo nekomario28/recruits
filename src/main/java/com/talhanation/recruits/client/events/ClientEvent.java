@@ -18,19 +18,15 @@ import net.minecraft.world.phys.HitResult;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
 
 import javax.annotation.Nullable;
 
-@EventBusSubscriber(modid = Main.MOD_ID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public class ClientEvent {
 
     public static ModelLayerLocation RECRUIT = new ModelLayerLocation(ResourceLocation.fromNamespaceAndPath(Main.MOD_ID, "recruit"), "recruit");
     public static ModelLayerLocation RECRUIT_OUTER_ARMOR = new ModelLayerLocation(ResourceLocation.fromNamespaceAndPath(Main.MOD_ID, "recruit_outer_layer"), "recruit_outer_layer");
     public static ModelLayerLocation RECRUIT_INNER_ARMOR = new ModelLayerLocation(ResourceLocation.fromNamespaceAndPath(Main.MOD_ID, "recruit_inner_layer"), "recruit_inner_layer");
 
-    @SubscribeEvent
     @OnlyIn(Dist.CLIENT)
     public static void entityRenderersEvent(EntityRenderersEvent.RegisterRenderers event){
         if(RecruitsClientConfig.RecruitsLookLikeVillagers.get()){
@@ -75,7 +71,6 @@ public class ClientEvent {
         }
     }
 
-    @SubscribeEvent
     public static void layerDefinitions(EntityRenderersEvent.RegisterLayerDefinitions event) {
         event.registerLayerDefinition(ClientEvent.RECRUIT, RecruitVillagerModel::createLayerDefinition);
         event.registerLayerDefinition(ClientEvent.RECRUIT_OUTER_ARMOR, RecruitArmorLayer::createOuterArmorLayer);

@@ -2,11 +2,9 @@
   "required": true,
   "minVersion": "0.8",
   "package": "com.talhanation.recruits.mixin",
-  "compatibilityLevel": "JAVA_17",
-  "refmap": "mixins.recruits.refmap.json",
+  "compatibilityLevel": "JAVA_21",
   "mixins": [
     "AbstractHorseMixin",
-    "AnimalMixin",
     "CamelMixin",
     "ClassInstanceMultiMapMixin",
     "GoalUtilsMixin",

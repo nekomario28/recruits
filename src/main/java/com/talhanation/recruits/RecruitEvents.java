@@ -31,6 +31,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.scores.Team;
@@ -611,7 +612,6 @@ public class RecruitEvents {
         }
     }
 
-    private final List<AbstractArrow> trackedArrows = new ArrayList<>();
     private int tickCounter = 0;
 
     @SubscribeEvent
@@ -626,16 +626,11 @@ public class RecruitEvents {
         tickCounter = 0;
 
 
-        List<AbstractArrow> arrows = event.getLevel().getEntitiesOfClass(AbstractArrow.class, event.getLevel().getWorldBorder().getCollisionShape().bounds());
-        trackedArrows.addAll(arrows);
-
-
-        Iterator<AbstractArrow> iterator = trackedArrows.iterator();
-        while (iterator.hasNext()) {
-            AbstractArrow arrow = iterator.next();
-            if (arrow.pickup == AbstractArrow.Pickup.DISALLOWED && arrow.saveWithoutId(new CompoundTag()).getShort("life") > 300) {
+        List<? extends AbstractArrow> arrows = ((ServerLevel) event.getLevel())
+                .getEntities(EntityTypeTest.forClass(AbstractArrow.class), arrow -> true);
+        for (AbstractArrow arrow : arrows) {
+            if (arrow.pickup == AbstractArrow.Pickup.DISALLOWED && arrow.inGroundTime > 300) {
                 arrow.discard();
-                iterator.remove();
             }
         }
     }

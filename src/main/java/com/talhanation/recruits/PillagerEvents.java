@@ -27,8 +27,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.Level;
-import net.neoforged.neoforge.event.entity.EntityEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.tick.EntityTickEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 
 import java.util.EnumSet;
@@ -145,7 +145,7 @@ public class PillagerEvents {
     //Raider
 
     @SubscribeEvent
-    public void raidStartOnBurningOminous(EntityEvent event) {
+    public void raidStartOnBurningOminous(EntityTickEvent.Post event) {
         if(!RecruitsServerConfig.QuickStartPillagerRaid.get()) return;
         Entity entity = event.getEntity();
 

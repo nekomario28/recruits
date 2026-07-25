@@ -14,9 +14,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.phys.AABB;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -30,15 +27,10 @@ import java.util.Arrays;
 import java.util.UUID;
 
 
-@EventBusSubscriber(modid = Main.MOD_ID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public class ModScreens {
     private static final Logger logger = LogManager.getLogger(Main.MOD_ID);
     public static final DeferredRegister<MenuType<?>> MENU_TYPES = DeferredRegister.create(Registries.MENU, Main.MOD_ID);
 
-    public static void registerMenus() {
-    }
-
-    @SubscribeEvent
     public static void registerMenuScreens(RegisterMenuScreensEvent event) {
         registerMenu(event, RECRUIT_CONTAINER_TYPE.get(), RecruitInventoryScreen::new);
         registerMenu(event, DEBUG_CONTAINER_TYPE.get(), DebugInvScreen::new);

@@ -9,6 +9,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.neoforged.neoforge.common.world.chunk.RegisterTicketControllersEvent;
 import net.neoforged.neoforge.common.world.chunk.TicketController;
 import org.jetbrains.annotations.NotNull;
 
@@ -20,6 +21,10 @@ public abstract class AbstractChunkLoaderEntity extends BowmanEntity {
 
     public AbstractChunkLoaderEntity(EntityType<? extends AbstractChunkLoaderEntity> entityType, Level world) {
         super(entityType, world);
+    }
+
+    public static void registerTicketController(RegisterTicketControllersEvent event) {
+        event.register(CHUNK_TICKETS);
     }
 
     ///////////////////////////////////TICK/////////////////////////////////////////

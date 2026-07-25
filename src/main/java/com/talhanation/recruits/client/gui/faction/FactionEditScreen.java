@@ -532,10 +532,14 @@ public class FactionEditScreen extends ScreenBase<TeamEditMenu> {
     }
 
     private boolean checkCreationCondition(){
+        if (this.banner == null || this.banner.isEmpty()) {
+            return false;
+        }
+
         boolean nameLength = this.textFieldTeamName != null && this.textFieldTeamName.getValue().length() >= 3 && this.textFieldTeamName.getValue().length() <= 32;
         boolean sufficientEmeralds = player.isCreative() || getPlayerCurrencyAmount() >= factionCreationPrice;
-        boolean bannerNotEmpty = this.banner != null && !this.banner.isEmpty() && !RecruitsFactionManager.isBannerBlank(this.banner);
-        boolean bannerNotInUse = this.banner != null && !RecruitsFactionManager.isBannerInUse(saveBanner(this.banner), factions);
+        boolean bannerNotEmpty = !RecruitsFactionManager.isBannerBlank(this.banner);
+        boolean bannerNotInUse = !RecruitsFactionManager.isBannerInUse(saveBanner(this.banner), factions);
         boolean factionNameOK = !RecruitsFactionManager.isNameInUse(this.textFieldTeamName.getValue(), factions);
 
         return bannerNotInUse && bannerNotEmpty && factionNameOK && nameLength && leaderInfo != null && sufficientEmeralds;
@@ -557,7 +561,9 @@ public class FactionEditScreen extends ScreenBase<TeamEditMenu> {
             }
         }
 
-        boolean bannerNotInUse = this.banner != null && !RecruitsFactionManager.isBannerInUse(saveBanner(this.banner), factions);
+        boolean bannerNotInUse = this.banner != null
+                && !this.banner.isEmpty()
+                && !RecruitsFactionManager.isBannerInUse(saveBanner(this.banner), factions);
 
         return bannerNotInUse && bannerNotEmpty && nameLength && leaderInfo != null && sufficientEmeralds && hasChanges && displayNameOK;
     }
@@ -617,7 +623,9 @@ public class FactionEditScreen extends ScreenBase<TeamEditMenu> {
     }
 
     private CompoundTag saveBanner(ItemStack stack) {
-        return player.level() == null ? new CompoundTag() : (CompoundTag) stack.save(player.level().registryAccess());
+        return player.level() == null || stack == null || stack.isEmpty()
+                ? new CompoundTag()
+                : (CompoundTag) stack.save(player.level().registryAccess());
     }
 
     @Override

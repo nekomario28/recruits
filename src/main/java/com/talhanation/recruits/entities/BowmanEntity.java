@@ -153,6 +153,12 @@ public class BowmanEntity extends AbstractRecruitEntity implements IRangedRecrui
             }
 
             ItemStack itemstack = this.getProjectile(this.getItemInHand(InteractionHand.MAIN_HAND));
+            if (itemstack.isEmpty()) {
+                if (RecruitsServerConfig.RangedRecruitsNeedArrowsToShoot.get()) {
+                    return;
+                }
+                itemstack = Items.ARROW.getDefaultInstance();
+            }
 
             AbstractArrow arrow = ProjectileUtil.getMobArrow(this, itemstack, v, this.getMainHandItem());
 
@@ -207,6 +213,12 @@ public class BowmanEntity extends AbstractRecruitEntity implements IRangedRecrui
         if(this.level().isClientSide()) return;
         if (this.getMainHandItem().getItem() instanceof BowItem) {
             ItemStack itemstack = this.getProjectile(this.getItemInHand(InteractionHand.MAIN_HAND));
+            if (itemstack.isEmpty()) {
+                if (RecruitsServerConfig.RangedRecruitsNeedArrowsToShoot.get()) {
+                    return;
+                }
+                itemstack = Items.ARROW.getDefaultInstance();
+            }
 
             AbstractArrow arrow = ProjectileUtil.getMobArrow(this, itemstack, v, this.getMainHandItem());
 
