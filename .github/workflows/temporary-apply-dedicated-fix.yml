@@ -1,0 +1,89 @@
+name: Temporary Recruits Dedicated Fix
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out Recruits port branch
+        uses: actions/checkout@v4
+        with:
+          ref: port/neoforge-1.21.1
+          fetch-depth: 0
+          path: recruits
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: recruits/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Fetch and apply the verified patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch test/dedicated-server-gametest \
+            https://github.com/nekomario28/workers.git "$RUNNER_TEMP/workers-test"
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import lzma
+          import os
+
+          source = Path(os.environ['RUNNER_TEMP']) / 'workers-test/.github/temporary-patches/recruits-supplemental.patch.xz.b64'
+          encoded = ''.join(source.read_text().split())
+          patch = lzma.decompress(base64.b64decode(encoded, validate=True))
+          destination = Path(os.environ['RUNNER_TEMP']) / 'recruits-supplemental.patch'
+          destination.write_bytes(patch)
+          if not patch.startswith(b'diff --git '):
+              raise RuntimeError('Recruits supplemental patch is invalid')
+          print(f'recruits patch: {len(patch)} bytes')
+          PY
+          cd recruits
+          git apply --check --binary --unidiff-zero "$RUNNER_TEMP/recruits-supplemental.patch"
+          git apply --binary --unidiff-zero "$RUNNER_TEMP/recruits-supplemental.patch"
+          git diff --check
+
+      - name: Build fixed Recruits
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd recruits
+          chmod +x gradlew
+          ./gradlew --no-daemon clean shadowJar --stacktrace 2>&1 | tee "$RUNNER_TEMP/recruits-build.log"
+          find build/libs -maxdepth 1 -name '*-all.jar' -print -quit | grep -q .
+
+      - name: Commit fixed Recruits source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd recruits
+          git add -A
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          if ! git diff --cached --quiet; then
+            git commit -m 'Remove client screen type from worker compatibility API'
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/nekomario28/recruits.git"
+            git push origin HEAD:port/neoforge-1.21.1
+          fi
+
+      - name: Upload build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recruits-dedicated-fix-evidence
+          path: ${{ runner.temp }}/recruits-build.log
+          if-no-files-found: warn
+          retention-days: 1
