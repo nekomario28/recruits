@@ -326,10 +326,6 @@ public class RecruitInventoryScreen extends ScreenBase<RecruitInventoryMenu> {
                             this.minecraft.setScreen(new PatrolLeaderScreen(leader, getMinecraft().player));
                             return;
                         }
-                        else if(recruit instanceof IVillagerWorker worker && worker.hasOnlyScreen()){
-                            this.minecraft.setScreen(worker.getSpecialScreen(recruit, getMinecraft().player));
-                            return;
-                        }
                         Main.SIMPLE_CHANNEL.sendToServer(new MessageOpenSpecialScreen(this.playerInventory.player, recruit.getUUID()));
                         this.onClose();
                     }
