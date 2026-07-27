@@ -1,1 +1,1 @@
-Temporary trigger for the atomic Recruits dedicated-server compatibility fix.
+Temporary cleanup trigger. The atomic Recruits fix has been built and committed, so this branch may now be deleted.
