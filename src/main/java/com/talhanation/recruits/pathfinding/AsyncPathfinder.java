@@ -71,9 +71,9 @@ public class AsyncPathfinder extends PathFinder {
             return new AsyncPath(Lists.newArrayList(), p_77430_, this.level, () -> {
                 try {
                     return this.processPath(nodeEvaluator, node, map, p_77431_, p_77432_, p_77433_);
-                }  catch (Exception e) {
-                        e.printStackTrace();
-                        return null;
+                } catch (Exception exception) {
+                    Main.LOGGER.error("Asynchronous pathfinding failed for mob {} targeting {}", p_77429_, p_77430_, exception);
+                    return null;
                 } finally {
                     nodeEvaluator.done();
                     NodeEvaluatorCache.returnNodeEvaluator(nodeEvaluator);
