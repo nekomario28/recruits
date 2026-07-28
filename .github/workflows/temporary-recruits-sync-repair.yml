@@ -1,0 +1,99 @@
+name: Temporary Recruits Sync Repair
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      WORK_BRANCH: sync/neoforge-1.21.1-upstream-1.15.2
+      EXPECTED_SYNC_SHA: 4f3ef4f6f3067896b519453b32d2a6af1c81454f
+      STABLE_PORT_SHA: 1848e8ec33376f8a933945d4704b3e4c49920d8e
+    steps:
+      - name: Check out repair harness
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Repair second syntax layer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/recruits-sync-repair"
+          REPO="$ROOT/repo"
+          OUT="$ROOT/evidence"
+          mkdir -p "$OUT"
+
+          git clone --branch "$WORK_BRANCH" \
+            "https://x-access-token:${GH_TOKEN}@github.com/nekomario28/recruits.git" "$REPO"
+          cd "$REPO"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SYNC_SHA"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch --no-tags origin "$STABLE_PORT_SHA"
+
+          git checkout "$STABLE_PORT_SHA" -- \
+            src/main/java/com/talhanation/recruits/entities/ai/RecruitRangedCrossbowAttackGoal.java \
+            src/main/java/com/talhanation/recruits/client/gui/worldmap/WorldMapScreen.java
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteEditPopup.java')
+          s = p.read_text()
+          bad = '        Minecraft.getInstance().setScreen(transferScreen);\n'
+          if s.count(bad) != 1:
+              raise SystemExit(f'expected exactly one stale transferScreen line, found {s.count(bad)}')
+          p.write_text(s.replace(bad, '', 1))
+          PY
+
+          git add \
+            src/main/java/com/talhanation/recruits/entities/ai/RecruitRangedCrossbowAttackGoal.java \
+            src/main/java/com/talhanation/recruits/client/gui/worldmap/WorldMapScreen.java \
+            src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteEditPopup.java
+          git diff --cached --check
+          git diff --cached --stat > "$OUT/repair-stat.txt"
+          git diff --cached --name-status > "$OUT/repaired-files.tsv"
+          test "$(git diff --cached --name-only | wc -l)" -eq 3
+
+          git commit -m 'Restore validated world map and crossbow syntax baseline'
+          git push origin "HEAD:$WORK_BRANCH"
+          git rev-parse HEAD | tee "$OUT/repaired-head.txt"
+
+      - name: Compile repaired sync branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$RUNNER_TEMP/recruits-sync-repair/repo"
+          OUT="$RUNNER_TEMP/recruits-sync-repair/evidence"
+          cd "$REPO"
+          chmod +x gradlew
+          set +e
+          ./gradlew --no-daemon clean compileJava --stacktrace 2>&1 | tee "$OUT/compile.log"
+          COMPILE_RC=${PIPESTATUS[0]}
+          set -e
+          printf 'compile_exit_code=%s\n' "$COMPILE_RC" > "$OUT/compile-result.txt"
+          grep -E '^.*error:|FAILURE: Build failed|BUILD SUCCESSFUL' "$OUT/compile.log" \
+            > "$OUT/compile-key-lines.txt" || true
+
+      - name: Upload repair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recruits-sync-repair
+          path: ${{ runner.temp }}/recruits-sync-repair/evidence
+          if-no-files-found: error
+          retention-days: 7
