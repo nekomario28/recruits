@@ -178,16 +178,16 @@ jobs:
           s = classifier.read_text().replace('block == Blocks.GRASS', 'block == Blocks.SHORT_GRASS')
           classifier.write_text(s)
 
-          for path in [
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteNamePopup.java',
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteEditPopup.java',
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/WaypointEditPopup.java',
-          ]:
+          popup_fields = {
+              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteNamePopup.java': 'nameField',
+              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteEditPopup.java': 'nameField',
+              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/WaypointEditPopup.java': 'waitField',
+          }
+          for path, field in popup_fields.items():
               p = Path(path)
               s = p.read_text()
-              s, count = re.subn(r'\n\s*if \(visible && nameField != null\) nameField\.tick\(\);', '', s, count=1)
-              if count == 0:
-                  s, count = re.subn(r'\n\s*if \(nameField != null\) nameField\.tick\(\);', '', s, count=1)
+              pattern = rf'\n\s*if \(visible && {field} != null\) {field}\.tick\(\);'
+              s, count = re.subn(pattern, '', s, count=1)
               if count != 1:
                   raise SystemExit(f'EditBox tick call count for {path}: {count}')
               p.write_text(s)
