@@ -31,6 +31,8 @@ jobs:
 
           git clone https://github.com/nekomario28/recruits.git "$REPO"
           cd "$REPO"
+          git config user.name upstream-sync-analysis
+          git config user.email upstream-sync-analysis@users.noreply.github.com
           git remote add upstream https://github.com/talhanation/recruits.git
           git fetch --no-tags origin "$PORT_SHA"
           git fetch --no-tags upstream "$RELEASE_1150_SHA" "$UPSTREAM_MAIN_SHA"
@@ -81,7 +83,6 @@ jobs:
           rows = []
           counts = {}
           for path in upstream_changed:
-              b = blob(base, path)
               p = blob(port, path)
               u = blob(upstream, path)
               if p == u:
