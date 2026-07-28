@@ -1,4 +1,4 @@
-name: Temporary Recruits NeoForge API Layer One
+name: Temporary Recruits Common API Foundation
 
 on:
   pull_request:
@@ -19,13 +19,13 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - name: Port exact API layer
+      - name: Repair common API foundation
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/api-layer-one"
+          ROOT="$RUNNER_TEMP/common-api-foundation"
           REPO="$ROOT/repo"
           OUT="$ROOT/evidence"
           mkdir -p "$OUT"
@@ -33,138 +33,64 @@ jobs:
 
           git clone --branch sync/neoforge-1.21.1-upstream-1.15.2 "https://x-access-token:${GH_TOKEN}@github.com/nekomario28/recruits.git" "$REPO"
           cd "$REPO"
-          test "$(git rev-parse HEAD)" = "ba87554f17ea41a768c415e29ac5139c54f8f7e3"
+          test "$(git rev-parse HEAD)" = "953cab516d8418170fe03a1c5e0c6784521e5d84"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
 
-          cat > src/main/java/com/talhanation/recruits/network/MessageToClientWorldMapIdentity.java <<'JAVA'
-          package com.talhanation.recruits.network;
+          cat > src/main/java/com/talhanation/recruits/world/RecruitsWorldSaveData.java <<'JAVA'
+          package com.talhanation.recruits.world;
 
-          import com.talhanation.recruits.client.ClientManager;
-          import com.talhanation.recruits.client.gui.worldmap.storage.WorldMapCacheManager;
-          import com.talhanation.recruits.client.gui.worldmap.storage.WorldMapStorageId;
-          import com.talhanation.recruits.network.compat.RecruitsMessage;
-          import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
-          import net.minecraft.client.Minecraft;
-          import net.minecraft.network.FriendlyByteBuf;
-          import net.minecraft.network.protocol.PacketFlow;
+          import net.minecraft.core.HolderLookup;
+          import net.minecraft.nbt.CompoundTag;
+          import net.minecraft.server.level.ServerLevel;
+          import net.minecraft.util.datafix.DataFixTypes;
+          import net.minecraft.world.level.saveddata.SavedData;
 
           import java.util.UUID;
 
-          public class MessageToClientWorldMapIdentity implements RecruitsMessage<MessageToClientWorldMapIdentity> {
+          public class RecruitsWorldSaveData extends SavedData {
+              private static final String FILE_ID = "recruitsWorldId";
+              private static final Factory<RecruitsWorldSaveData> FACTORY = new Factory<>(
+                      RecruitsWorldSaveData::new,
+                      RecruitsWorldSaveData::load,
+                      DataFixTypes.LEVEL);
+
               private UUID worldId;
 
-              public MessageToClientWorldMapIdentity() {
+              public RecruitsWorldSaveData() {
+                  this.worldId = UUID.randomUUID();
+                  this.setDirty();
               }
 
-              public MessageToClientWorldMapIdentity(UUID worldId) {
-                  this.worldId = worldId;
+              private RecruitsWorldSaveData(UUID worldId) {
+                  this.worldId = worldId == null ? UUID.randomUUID() : worldId;
+                  if (worldId == null) this.setDirty();
               }
 
-              @Override
-              public PacketFlow getExecutingSide() {
-                  return PacketFlow.CLIENTBOUND;
+              public static RecruitsWorldSaveData get(ServerLevel level) {
+                  return level.getDataStorage().computeIfAbsent(FACTORY, FILE_ID);
               }
 
-              @Override
-              public void executeClientSide(RecruitsNetworkContext context) {
-                  if (worldId == null) return;
-                  WorldMapStorageId.setServerWorldId(worldId);
-                  Minecraft mc = Minecraft.getInstance();
-                  if (mc.level != null) {
-                      WorldMapCacheManager.getInstance().initialize(mc.level);
-                  }
-                  ClientManager.loadRoutes();
-                  ClientManager.loadSpecialStates();
+              public static RecruitsWorldSaveData load(CompoundTag nbt, HolderLookup.Provider registries) {
+                  UUID worldId = nbt.hasUUID("WorldId") ? nbt.getUUID("WorldId") : null;
+                  return new RecruitsWorldSaveData(worldId);
               }
 
               @Override
-              public MessageToClientWorldMapIdentity fromBytes(FriendlyByteBuf buf) {
-                  this.worldId = buf.readUUID();
-                  return this;
+              public CompoundTag save(CompoundTag nbt, HolderLookup.Provider registries) {
+                  nbt.putUUID("WorldId", worldId);
+                  return nbt;
               }
 
-              @Override
-              public void toBytes(FriendlyByteBuf buf) {
-                  buf.writeUUID(this.worldId);
-              }
-          }
-          JAVA
-
-          cat > src/main/java/com/talhanation/recruits/compat/corpse/RecruitCorpseEntityTypeResolver.java <<'JAVA'
-          package com.talhanation.recruits.compat.corpse;
-
-          import com.talhanation.recruits.Main;
-          import com.talhanation.recruits.entities.AbstractRecruitEntity;
-          import net.minecraft.core.registries.BuiltInRegistries;
-          import net.minecraft.resources.ResourceKey;
-          import net.minecraft.resources.ResourceLocation;
-          import net.minecraft.world.entity.Entity;
-          import net.minecraft.world.entity.EntityType;
-          import net.minecraft.world.level.Level;
-          import org.jetbrains.annotations.Nullable;
-
-          import java.nio.charset.StandardCharsets;
-          import java.util.Map;
-          import java.util.concurrent.ConcurrentHashMap;
-          import java.util.zip.CRC32;
-
-          public final class RecruitCorpseEntityTypeResolver {
-              private static final ResourceLocation DEFAULT_RECRUIT_ID = ResourceLocation.fromNamespaceAndPath(Main.MOD_ID, "recruit");
-              private static final ResourceLocation DEFAULT_SCOUT_ID = ResourceLocation.fromNamespaceAndPath(Main.MOD_ID, "scout");
-              private static final Map<Integer, EntityType<? extends AbstractRecruitEntity>> RESOLVED_TYPES = new ConcurrentHashMap<>();
-
-              private RecruitCorpseEntityTypeResolver() {
-              }
-
-              public static int getEntityTypeHash(AbstractRecruitEntity recruit) {
-                  ResourceLocation id = BuiltInRegistries.ENTITY_TYPE.getKey(recruit.getType());
-                  return id == null ? 0 : stableHash(id);
-              }
-
-              @Nullable
-              public static EntityType<? extends AbstractRecruitEntity> resolveEntityType(int hash, boolean companionFallback, Level level) {
-                  if (hash != 0) {
-                      EntityType<? extends AbstractRecruitEntity> cached = RESOLVED_TYPES.get(hash);
-                      if (cached != null) return cached;
-
-                      for (Map.Entry<ResourceKey<EntityType<?>>, EntityType<?>> entry : BuiltInRegistries.ENTITY_TYPE.entrySet()) {
-                          ResourceLocation id = entry.getKey().location();
-                          if (!Main.MOD_ID.equals(id.getNamespace()) || stableHash(id) != hash) continue;
-                          EntityType<?> rawType = entry.getValue();
-                          Entity probe = rawType.create(level);
-                          if (probe instanceof AbstractRecruitEntity) {
-                              @SuppressWarnings("unchecked")
-                              EntityType<? extends AbstractRecruitEntity> recruitType = (EntityType<? extends AbstractRecruitEntity>) rawType;
-                              RESOLVED_TYPES.put(hash, recruitType);
-                              return recruitType;
-                          }
-                      }
-                  }
-
-                  ResourceLocation fallbackId = companionFallback ? DEFAULT_SCOUT_ID : DEFAULT_RECRUIT_ID;
-                  EntityType<?> fallbackType = BuiltInRegistries.ENTITY_TYPE.get(fallbackId);
-                  if (fallbackType == null) return null;
-                  Entity fallbackProbe = fallbackType.create(level);
-                  if (fallbackProbe instanceof AbstractRecruitEntity) {
-                      @SuppressWarnings("unchecked")
-                      EntityType<? extends AbstractRecruitEntity> recruitType = (EntityType<? extends AbstractRecruitEntity>) fallbackType;
-                      return recruitType;
-                  }
-                  return null;
-              }
-
-              private static int stableHash(ResourceLocation id) {
-                  CRC32 crc32 = new CRC32();
-                  crc32.update(id.toString().getBytes(StandardCharsets.UTF_8));
-                  return (int) crc32.getValue();
+              public UUID getWorldId() {
+                  return worldId;
               }
           }
           JAVA
 
           python3 - <<'PY'
           from pathlib import Path
-          import json, re
+          import re
 
           def add_import(path, imp):
               p = Path(path)
@@ -172,82 +98,106 @@ jobs:
               line = f'import {imp};\n'
               if line in s:
                   return
-              marker = re.search(r'^package\s+[^;]+;\n', s, re.M)
-              if marker is None:
+              m = re.search(r'^package\s+[^;]+;\n', s, re.M)
+              if m is None:
                   raise SystemExit(f'package declaration missing: {path}')
-              p.write_text(s[:marker.end()] + '\n' + line + s[marker.end():])
+              p.write_text(s[:m.end()] + '\n' + line + s[m.end():])
 
-          p = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/color/MapBlockColorResolver.java')
-          s = p.read_text()
-          old = 'import net.minecraftforge.client.model.data.ModelData;'
-          if old not in s:
-              raise SystemExit('old ModelData import not found')
-          p.write_text(s.replace(old, 'import net.neoforged.neoforge.client.model.data.ModelData;', 1))
+          add_import('src/main/java/com/talhanation/recruits/client/gui/component/BannerRenderer.java', 'java.util.List')
+          add_import('src/main/java/com/talhanation/recruits/network/MessageTeleportPlayer.java', 'net.minecraft.world.entity.player.Player')
+          add_import('src/main/java/com/talhanation/recruits/world/RecruitsPlayerUnitManager.java', 'net.minecraft.world.level.entity.EntityTypeTest')
 
-          p = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/color/MapStateClassifier.java')
-          s = p.read_text()
-          s = s.replace('import net.minecraft.world.level.block.GlassBlock;\n', '')
-          s = s.replace('        if (block instanceof GlassBlock) return true;\n', '')
-          p.write_text(s)
-
-          p = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/claim/ClaimEditScreen.java')
-          s = p.read_text()
-          old = 'import net.minecraftforge.client.gui.widget.ExtendedButton;'
-          if old not in s:
-              raise SystemExit('old ExtendedButton import not found')
-          p.write_text(s.replace(old, 'import net.neoforged.neoforge.client.gui.widget.ExtendedButton;', 1))
-
-          add_import('src/main/java/com/talhanation/recruits/client/events/ClientPlayerEvents.java',
-                     'com.talhanation.recruits.client.gui.worldmap.WorldMapScreen')
-          add_import('src/main/java/com/talhanation/recruits/client/events/ClientPlayerEvents.java',
-                     'net.neoforged.neoforge.event.level.ChunkEvent')
-          add_import('src/main/java/com/talhanation/recruits/client/events/ClientEvent.java',
-                     'net.neoforged.bus.api.SubscribeEvent')
-          add_import('src/main/java/com/talhanation/recruits/client/events/ClientEvent.java',
-                     'net.neoforged.neoforge.client.event.ModelEvent')
-
-          p = Path('src/main/java/com/talhanation/recruits/client/events/ClientEvent.java')
-          s = p.read_text().replace('import net.minecraft.client.renderer.texture.TextureAtlas;\n', '')
-          old = '''    @SubscribeEvent
-              public static void textureStitchCompleted(TextureStitchEvent.Post event) {
-                  if (TextureAtlas.LOCATION_BLOCKS.equals(event.getAtlas().location())) {
-                      WorldMapCacheManager.getInstance().onClientBlockAtlasStitched();
-                  }
+          client = Path('src/main/java/com/talhanation/recruits/config/RecruitsClientConfig.java')
+          s = client.read_text()
+          class_marker = 'public class RecruitsClientConfig {\n'
+          enum_block = '''public class RecruitsClientConfig {
+              public enum MapPlayerIconStyle {
+                  VANILLA,
+                  OVERHAULED
               }
           '''
-          normalized = '''    @SubscribeEvent
-              public static void textureStitchCompleted(TextureStitchEvent.Post event) {
-                  if (TextureAtlas.LOCATION_BLOCKS.equals(event.getAtlas().location())) {
-                      WorldMapCacheManager.getInstance().onClientBlockAtlasStitched();
-                  }
-              }
+          if class_marker not in s:
+              raise SystemExit('client config class marker missing')
+          s = s.replace(class_marker, enum_block, 1)
+          decl_marker = '    public static ModConfigSpec.BooleanValue UpdateMapTiles;\n'
+          decls = '''    public static ModConfigSpec.BooleanValue UpdateMapTiles;
+              public static ModConfigSpec.BooleanValue WorldMapUpdateAroundPlayer;
+              public static ModConfigSpec.BooleanValue WorldMapNightShading;
+              public static ModConfigSpec.BooleanValue WorldMapShowCoordinates;
+              public static ModConfigSpec.BooleanValue WorldMapClaimFill;
+              public static ModConfigSpec.BooleanValue RecruitsToasts;
+              public static ModConfigSpec.EnumValue<MapPlayerIconStyle> WorldMapPlayerIconStyle;
           '''
-          # Use a structural regex because checkout preserves normal four-space indentation.
-          s, count = re.subn(
-              r'\n\s*@SubscribeEvent\n\s*public static void textureStitchCompleted\(TextureStitchEvent\.Post event\) \{\n\s*if \(TextureAtlas\.LOCATION_BLOCKS\.equals\(event\.getAtlas\(\)\.location\(\)\)\) \{\n\s*WorldMapCacheManager\.getInstance\(\)\.onClientBlockAtlasStitched\(\);\n\s*\}\n\s*\}\n',
-              '\n', s, count=1)
-          if count != 1:
-              raise SystemExit(f'obsolete texture stitch handler count={count}')
-          p.write_text(s)
+          if decl_marker not in s:
+              raise SystemExit('client config declaration marker missing')
+          s = s.replace(decl_marker, decls, 1)
+          client.write_text(s)
 
-          mixin_json = Path('src/main/resources/mixins.recruits.json')
-          data = json.loads(mixin_json.read_text())
-          if 'client.ClientLevelMixin' not in data.get('client', []):
-              raise SystemExit('ClientLevelMixin registration missing')
-          data['client'].remove('client.ClientLevelMixin')
-          mixin_json.write_text(json.dumps(data, indent=2) + '\n')
+          server = Path('src/main/java/com/talhanation/recruits/config/RecruitsServerConfig.java')
+          s = server.read_text()
+          marker = '    public static ModConfigSpec.BooleanValue RecruitsStarving;\n'
+          replacement = '''    public static ModConfigSpec.BooleanValue RecruitsStarving;
+              public static ModConfigSpec.BooleanValue RecruitsUpdateHungerAndMorale;
+          '''
+          if marker not in s:
+              raise SystemExit('server starving declaration marker missing')
+          s = s.replace(marker, replacement, 1)
+          marker = '    public static ModConfigSpec.IntValue ChunkCost;\n'
+          replacement = '''    public static ModConfigSpec.IntValue ChunkCost;
+              public static ModConfigSpec.IntValue MaxClaimChunks;
+          '''
+          if marker not in s:
+              raise SystemExit('server claim declaration marker missing')
+          s = s.replace(marker, replacement, 1)
+          server.write_text(s)
 
-          mixin_java = Path('src/main/java/com/talhanation/recruits/mixin/client/ClientLevelMixin.java')
-          if not mixin_java.exists():
-              raise SystemExit('ClientLevelMixin source missing')
-          mixin_java.unlink()
+          corpse = Path('src/main/java/com/talhanation/recruits/compat/corpse/RecruitCorpseSpawner.java')
+          s = corpse.read_text()
+          s = s.replace('import net.minecraft.nbt.CompoundTag;\n', 'import net.minecraft.core.HolderLookup;\nimport net.minecraft.nbt.CompoundTag;\n', 1)
+          s = s.replace('items.add(saveEquipmentItem(recruit.getInventory().getItem(slot)));',
+                        'items.add(saveEquipmentItem(recruit.getInventory().getItem(slot), recruit.registryAccess()));')
+          s = s.replace('Optional<CompoundTag> itemTag = saveItem(recruit.getInventory().getItem(inventorySlot));',
+                        'Optional<CompoundTag> itemTag = saveItem(recruit.getInventory().getItem(inventorySlot), recruit.registryAccess());')
+          s = s.replace('private static Optional<CompoundTag> saveItem(ItemStack stack) {',
+                        'private static Optional<CompoundTag> saveItem(ItemStack stack, HolderLookup.Provider registries) {')
+          old = '''        CompoundTag itemTag = new CompoundTag();
+                  stack.save(itemTag);
+          '''
+          new = '''        CompoundTag itemTag = ((CompoundTag) stack.save(registries)).copy();
+          '''
+          if old not in s:
+              raise SystemExit('old ItemStack save body missing')
+          s = s.replace(old, new, 1)
+          s = s.replace('private static CompoundTag saveEquipmentItem(ItemStack stack) {',
+                        'private static CompoundTag saveEquipmentItem(ItemStack stack, HolderLookup.Provider registries) {')
+          s = s.replace('return saveItem(stack).orElseGet(RecruitCorpseSpawner::emptyItemTag);',
+                        'return saveItem(stack, registries).orElseGet(RecruitCorpseSpawner::emptyItemTag);')
+          corpse.write_text(s)
+
+          classifier = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/color/MapStateClassifier.java')
+          s = classifier.read_text().replace('block == Blocks.GRASS', 'block == Blocks.SHORT_GRASS')
+          classifier.write_text(s)
+
+          for path in [
+              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteNamePopup.java',
+              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteEditPopup.java',
+              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/WaypointEditPopup.java',
+          ]:
+              p = Path(path)
+              s = p.read_text()
+              s, count = re.subn(r'\n\s*if \(visible && nameField != null\) nameField\.tick\(\);', '', s, count=1)
+              if count == 0:
+                  s, count = re.subn(r'\n\s*if \(nameField != null\) nameField\.tick\(\);', '', s, count=1)
+              if count != 1:
+                  raise SystemExit(f'EditBox tick call count for {path}: {count}')
+              p.write_text(s)
           PY
 
           git add -A
           git diff --cached --check
           git diff --cached --name-status > "$OUT/repaired-files.tsv"
           git diff --cached --stat > "$OUT/repair-stat.txt"
-          git commit -m 'Port upstream world map support to NeoForge APIs'
+          git commit -m 'Port common configuration and save APIs to 1.21.1'
           git push origin HEAD:sync/neoforge-1.21.1-upstream-1.15.2
           git rev-parse HEAD | tee "$OUT/repaired-head.txt"
 
@@ -262,7 +212,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: recruits-neoforge-api-layer-one
-          path: ${{ runner.temp }}/api-layer-one/evidence
+          name: recruits-common-api-foundation
+          path: ${{ runner.temp }}/common-api-foundation/evidence
           if-no-files-found: warn
           retention-days: 7
