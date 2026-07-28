@@ -35,6 +35,7 @@ public final class RecruitsFinalRestartProbe {
     private static final Path PASS = Path.of("recruits-final-restart.pass");
     private static final Path FAIL = Path.of("recruits-final-restart.fail");
     private static final BlockPos POS = new BlockPos(8, 100, 8);
+    private static final int CARGO_SLOT = 6;
     private static final UUID RECRUIT_UUID = UUID.fromString("30000000-0000-0000-0000-000000000003");
     private static final UUID OWNER_UUID = UUID.fromString("40000000-0000-0000-0000-000000000004");
     private static int ticks;
@@ -106,12 +107,13 @@ public final class RecruitsFinalRestartProbe {
         require(isOwned(recruit), "Owned flag setter/getter failed");
 
         Container inventory = requireInventory(recruit);
-        inventory.setItem(0, new ItemStack(Items.EMERALD, 23));
+        require(inventory.getContainerSize() > CARGO_SLOT, "Recruit inventory lacks cargo slot 6");
+        inventory.setItem(CARGO_SLOT, new ItemStack(Items.EMERALD, 23));
         inventory.setChanged();
         require(level.addFreshEntity(recruit), "Recruit could not be added");
         LOGGER.info("RECRUITS_FINAL_RESTART_PREPARED class={} uuid={} owner={} owned={} inventorySize={} emeralds={}",
                 recruit.getClass().getName(), recruit.getUUID(), owner.get(recruit), isOwned(recruit),
-                inventory.getContainerSize(), inventory.getItem(0).getCount());
+                inventory.getContainerSize(), inventory.getItem(CARGO_SLOT).getCount());
     }
 
     private static void saveAndStop(MinecraftServer server) throws Exception {
@@ -127,7 +129,7 @@ public final class RecruitsFinalRestartProbe {
                 StandardOpenOption.TRUNCATE_EXISTING);
         LOGGER.info("RECRUITS_FINAL_RESTART_WRITE_OK class={} uuid={} owner={} owned={} emeralds={}",
                 recruit.getClass().getName(), recruit.getUUID(), requireOwnerAccess(recruit).get(recruit),
-                isOwned(recruit), requireInventory(recruit).getItem(0).getCount());
+                isOwned(recruit), requireInventory(recruit).getItem(CARGO_SLOT).getCount());
         server.halt(false);
     }
 
@@ -145,6 +147,7 @@ public final class RecruitsFinalRestartProbe {
                         + "uuid=" + RECRUIT_UUID + "\n"
                         + "owner=" + OWNER_UUID + "\n"
                         + "owned=true\n"
+                        + "cargoSlot=6\n"
                         + "emeralds=23\n"
                         + "mainhand=iron_sword\n"
                         + "offhand=shield\n"
@@ -152,7 +155,7 @@ public final class RecruitsFinalRestartProbe {
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         LOGGER.info("RECRUITS_FINAL_RESTART_VERIFY_OK class={} uuid={} owner={} owned={} emeralds={}",
                 recruit.getClass().getName(), recruit.getUUID(), requireOwnerAccess(recruit).get(recruit),
-                isOwned(recruit), requireInventory(recruit).getItem(0).getCount());
+                isOwned(recruit), requireInventory(recruit).getItem(CARGO_SLOT).getCount());
         server.halt(false);
     }
 
@@ -169,8 +172,9 @@ public final class RecruitsFinalRestartProbe {
         require(OWNER_UUID.equals(requireOwnerAccess(recruit).get(recruit)), "Owner UUID did not persist");
         require(isOwned(recruit), "Owned flag did not persist");
         Container inventory = requireInventory(recruit);
-        require(inventory.getItem(0).is(Items.EMERALD) && inventory.getItem(0).getCount() == 23,
-                "Inventory did not preserve 23 emeralds");
+        require(inventory.getItem(CARGO_SLOT).is(Items.EMERALD)
+                        && inventory.getItem(CARGO_SLOT).getCount() == 23,
+                "Cargo slot 6 did not preserve 23 emeralds");
     }
 
     private static LivingEntity createCoreRecruit(ServerLevel level) {
@@ -197,13 +201,13 @@ public final class RecruitsFinalRestartProbe {
                     && Container.class.isAssignableFrom(method.getReturnType())) {
                 try {
                     Container inventory = (Container) method.invoke(entity);
-                    if (inventory != null && inventory.getContainerSize() > 0) return inventory;
+                    if (inventory != null && inventory.getContainerSize() > CARGO_SLOT) return inventory;
                 } catch (ReflectiveOperationException failure) {
                     throw new IllegalStateException("Failed to access recruit inventory", failure);
                 }
             }
         }
-        throw new IllegalStateException("No non-empty public recruit inventory");
+        throw new IllegalStateException("No recruit cargo inventory");
     }
 
     private static void setOwned(Object entity, boolean value) {
