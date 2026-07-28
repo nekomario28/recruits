@@ -1,0 +1,149 @@
+name: Temporary Recruits Upstream Sync Analysis
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PORT_SHA: 1848e8ec33376f8a933945d4704b3e4c49920d8e
+      RELEASE_1150_SHA: f43b8f7a25ad838e04acd20f61b0582108f25c64
+      UPSTREAM_MAIN_SHA: cff03e085d65653406a8b6ddcdd0ebff615c3e48
+    steps:
+      - name: Check out analysis harness
+        uses: actions/checkout@v4
+
+      - name: Analyze exact histories and dry-run merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/recruits-upstream-sync"
+          REPO="$ROOT/repo"
+          OUT="$ROOT/evidence"
+          mkdir -p "$OUT"
+
+          git clone https://github.com/nekomario28/recruits.git "$REPO"
+          cd "$REPO"
+          git remote add upstream https://github.com/talhanation/recruits.git
+          git fetch --no-tags origin "$PORT_SHA"
+          git fetch --no-tags upstream "$RELEASE_1150_SHA" "$UPSTREAM_MAIN_SHA"
+
+          test "$(git rev-parse "$PORT_SHA")" = "$PORT_SHA"
+          test "$(git rev-parse "$RELEASE_1150_SHA")" = "$RELEASE_1150_SHA"
+          test "$(git rev-parse "$UPSTREAM_MAIN_SHA")" = "$UPSTREAM_MAIN_SHA"
+          git merge-base --is-ancestor "$RELEASE_1150_SHA" "$UPSTREAM_MAIN_SHA"
+
+          git log --reverse --date=iso-strict --format='%H%x09%ad%x09%s' \
+            "$RELEASE_1150_SHA..$UPSTREAM_MAIN_SHA" > "$OUT/upstream-commits-since-1.15.0.tsv"
+          git diff --name-status --find-renames "$RELEASE_1150_SHA" "$UPSTREAM_MAIN_SHA" \
+            > "$OUT/upstream-files-since-1.15.0.tsv"
+          git diff --name-status --find-renames "$RELEASE_1150_SHA" "$PORT_SHA" \
+            > "$OUT/port-files-vs-upstream-1.15.0.tsv"
+          git diff --numstat "$RELEASE_1150_SHA" "$UPSTREAM_MAIN_SHA" \
+            > "$OUT/upstream-numstat.tsv"
+          git diff --numstat "$RELEASE_1150_SHA" "$PORT_SHA" \
+            > "$OUT/port-numstat.tsv"
+
+          python3 - "$REPO" "$OUT" "$RELEASE_1150_SHA" "$PORT_SHA" "$UPSTREAM_MAIN_SHA" <<'PY'
+          import csv
+          import pathlib
+          import subprocess
+          import sys
+
+          repo = pathlib.Path(sys.argv[1])
+          out = pathlib.Path(sys.argv[2])
+          base, port, upstream = sys.argv[3:6]
+
+          def names(a, b):
+              raw = subprocess.check_output(
+                  ['git', '-C', str(repo), 'diff', '--name-only', '--find-renames', a, b],
+                  text=True,
+              )
+              return sorted(line for line in raw.splitlines() if line)
+
+          def blob(commit, path):
+              proc = subprocess.run(
+                  ['git', '-C', str(repo), 'show', f'{commit}:{path}'],
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.DEVNULL,
+              )
+              return proc.stdout if proc.returncode == 0 else None
+
+          upstream_changed = names(base, upstream)
+          port_changed = set(names(base, port))
+          rows = []
+          counts = {}
+          for path in upstream_changed:
+              b = blob(base, path)
+              p = blob(port, path)
+              u = blob(upstream, path)
+              if p == u:
+                  state = 'PORT_ALREADY_MATCHES_UPSTREAM'
+              elif p is None and u is not None:
+                  state = 'MISSING_IN_PORT'
+              elif p is not None and u is None:
+                  state = 'REMOVED_UPSTREAM_PRESENT_IN_PORT'
+              elif path not in port_changed:
+                  state = 'PORT_UNCHANGED_FROM_1.15.0'
+              else:
+                  state = 'BOTH_CHANGED_DIFFERENT'
+              counts[state] = counts.get(state, 0) + 1
+              rows.append((path, state, 'yes' if path in port_changed else 'no'))
+
+          with (out / 'file-classification.tsv').open('w', newline='') as f:
+              w = csv.writer(f, delimiter='\t')
+              w.writerow(['path', 'classification', 'changed_in_port_vs_1.15.0'])
+              w.writerows(rows)
+
+          intersections = sorted(set(upstream_changed) & port_changed)
+          (out / 'intersection-files.txt').write_text('\n'.join(intersections) + ('\n' if intersections else ''))
+
+          summary = [
+              f'upstream_commits_since_1.15.0={sum(1 for _ in (out / "upstream-commits-since-1.15.0.tsv").open())}',
+              f'upstream_changed_files={len(upstream_changed)}',
+              f'port_changed_files_vs_1.15.0={len(port_changed)}',
+              f'intersection_files={len(intersections)}',
+          ]
+          for key in sorted(counts):
+              summary.append(f'{key}={counts[key]}')
+          (out / 'classification-summary.txt').write_text('\n'.join(summary) + '\n')
+          PY
+
+          git checkout --detach "$PORT_SHA"
+          set +e
+          git merge --no-commit --no-ff "$UPSTREAM_MAIN_SHA" > "$OUT/dry-run-merge.log" 2>&1
+          MERGE_RC=$?
+          set -e
+          printf 'merge_exit_code=%s\n' "$MERGE_RC" > "$OUT/dry-run-merge-result.txt"
+          git diff --name-only --diff-filter=U | sort > "$OUT/dry-run-conflicts.txt"
+          git status --short > "$OUT/dry-run-status.txt"
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git merge --abort
+          fi
+
+          {
+            echo "port_sha=$PORT_SHA"
+            echo "upstream_release_1_15_0_sha=$RELEASE_1150_SHA"
+            echo "upstream_main_sha=$UPSTREAM_MAIN_SHA"
+            echo "merge_base_port_main=$(git merge-base "$PORT_SHA" "$UPSTREAM_MAIN_SHA")"
+            echo "port_version=$(git show "$PORT_SHA":gradle.properties | sed -n 's/^mod_version=//p')"
+            echo "upstream_build_version=$(git show "$UPSTREAM_MAIN_SHA":build.gradle | sed -n "s/^version = '\(.*\)'/\1/p")"
+          } > "$OUT/manifest.txt"
+
+          cat "$OUT/classification-summary.txt"
+          echo "dry_run_conflicts=$(wc -l < "$OUT/dry-run-conflicts.txt")"
+
+      - name: Upload sync analysis evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: recruits-upstream-sync-analysis
+          path: ${{ runner.temp }}/recruits-upstream-sync/evidence
+          if-no-files-found: error
+          retention-days: 7
