@@ -19,22 +19,17 @@ public class WaypointEditPopup {
     private static final Component CANCEL = Component.translatable("gui.recruits.map.route.cancel");
 
     private static final int WIDTH = 210;
-    private static final int HEIGHT = 110;
+    private static final int HEIGHT = 90;
+    private static final int BG_COLOR = 0x80000000;
+    private static final int OUTLINE_COLOR = 0x40FFFFFF;
+    private static final int BTN_COLOR = 0x80222222;
+    private static final int BTN_HOVERED_COLOR = 0x80444444;
+    private static final int BTN_SELECTED_COLOR = 0xBB444444;
     private static final int TEXT_COLOR = 0xFFFFFF;
     private static final int TEXT_MUTED = 0xAAAAAA;
     private static final int BTN_H = 14;
     private static final int BTN_W = 62;
-    private static final Component TEXT_TITLE = Component.translatable("gui.recruits.map.waypoint.title");
-    private static final Component TEXT_ACTION = Component.translatable("gui.recruits.map.waypoint.action");
-    private static final Component TEXT_ACTION_NONE = Component.translatable("gui.recruits.map.waypoint.action.none");
-    private static final Component TEXT_ACTION_WAIT = Component.translatable("gui.recruits.map.waypoint.action.wait");
-    private static final Component TEXT_SECONDS = Component.translatable("gui.recruits.map.waypoint.seconds");
-    private static final Component TEXT_HINT_NONE = Component.translatable("gui.recruits.map.waypoint.hint.none");
-    private static final Component TEXT_HINT_WAIT = Component.translatable("gui.recruits.map.waypoint.hint.wait");
-    private static final Component TEXT_CONFIRM = Component.translatable("gui.recruits.map.common.ok");
-    private static final Component TEXT_CANCEL = Component.translatable("gui.recruits.map.common.cancel");
-    private static final Component TEXT_FEEDBACK_SAVED = Component.translatable("gui.recruits.map.waypoint.feedback.saved");
-    private static final Component TEXT_FEEDBACK_CLEARED = Component.translatable("gui.recruits.map.waypoint.feedback.cleared");
+    private static final int ACTION_BUTTON_X = 72;
 
     private final WorldMapScreen parent;
 
@@ -72,7 +67,7 @@ public class WaypointEditPopup {
         if (waitFieldBuilt || actionType != RecruitsRoute.WaypointAction.Type.WAIT) return;
         int px = (parent.width - WIDTH) / 2;
         int py = (parent.height - HEIGHT) / 2;
-        int rowY = py + 48;
+        int rowY = py + 22;
         int fieldY = rowY + 20;
         int fieldX = px + 66;
         int fieldW = 54;
@@ -115,15 +110,11 @@ public class WaypointEditPopup {
         }
 
         ClientManager.saveRoute(parent.selectedRoute);
-        parent.showMapNotice(actionType == null ? TEXT_FEEDBACK_CLEARED : TEXT_FEEDBACK_SAVED, 0xFF9FDB6B);
         close();
     }
 
-    private Component getHintText() {
-        return actionType == RecruitsRoute.WaypointAction.Type.WAIT ? TEXT_HINT_WAIT : TEXT_HINT_NONE;
-    }
-
     public void tick() {
+        if (visible && waitField != null) waitField.tick();
     }
 
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY) {
@@ -133,46 +124,61 @@ public class WaypointEditPopup {
         int py = (parent.height - HEIGHT) / 2;
 
         guiGraphics.fill(0, 0, parent.width, parent.height, 0x88000000);
-        WorldMapRenderPrimitives.panel(guiGraphics, px, py, WIDTH, HEIGHT);
+        guiGraphics.fill(px, py, px + WIDTH, py + HEIGHT, BG_COLOR);
+        guiGraphics.renderOutline(px, py, WIDTH, HEIGHT, OUTLINE_COLOR);
 
-        guiGraphics.drawCenteredString(Minecraft.getInstance().font, TEXT_TITLE,
-                px + WIDTH / 2, py + 6, TEXT_COLOR);
-        guiGraphics.drawString(Minecraft.getInstance().font, waypoint.getName(), px + 8, py + 18, 0xFFE6D6A8, false);
-        guiGraphics.drawWordWrap(Minecraft.getInstance().font, getHintText(), px + 8, py + 30, WIDTH - 16, 0xFFB8A17A);
+        guiGraphics.drawCenteredString(
+                Minecraft.getInstance().font, waypoint.getName(), px + WIDTH / 2, py + 6, TEXT_COLOR);
 
-        int rowY = py + 48;
-        guiGraphics.drawString(Minecraft.getInstance().font, TEXT_ACTION, px + 8, rowY + 3, TEXT_MUTED, false);
+        int rowY = py + 22;
+        guiGraphics.drawString(Minecraft.getInstance().font, ACTION, px + 8, rowY + 3, TEXT_MUTED, false);
 
-        renderActionButton(guiGraphics, mouseX, mouseY, TEXT_ACTION_NONE, null, px + 56, rowY);
-        renderActionButton(guiGraphics, mouseX, mouseY, TEXT_ACTION_WAIT, RecruitsRoute.WaypointAction.Type.WAIT, px + 56 + BTN_W + 4, rowY);
+        renderActionButton(guiGraphics, mouseX, mouseY, ACTION_NONE, null, px + ACTION_BUTTON_X, rowY);
+        renderActionButton(
+                guiGraphics, mouseX, mouseY, ACTION_WAIT,
+                RecruitsRoute.WaypointAction.Type.WAIT,
+                px + ACTION_BUTTON_X + BTN_W + 4,
+                rowY);
 
         if (actionType == RecruitsRoute.WaypointAction.Type.WAIT) {
             ensureWaitField();
             int fieldY = rowY + 20;
-            guiGraphics.drawString(Minecraft.getInstance().font, TEXT_SECONDS, px + 8, fieldY + 2, TEXT_MUTED, false);
+            guiGraphics.drawString(Minecraft.getInstance().font, SECONDS, px + 8, fieldY + 2, TEXT_MUTED, false);
             int fieldX = px + 66;
             int fieldW = 54;
             guiGraphics.fill(fieldX - 1, fieldY - 1, fieldX + fieldW + 1, fieldY + 13, 0x80303030);
-            guiGraphics.renderOutline(fieldX - 1, fieldY - 1, fieldW + 2, 14, 0xAA8A6A3A);
+            guiGraphics.renderOutline(fieldX - 1, fieldY - 1, fieldW + 2, 14, OUTLINE_COLOR);
             if (waitField != null) waitField.render(guiGraphics, mouseX, mouseY, 0);
         }
 
         int btnY = py + HEIGHT - 18;
-        renderButton(guiGraphics, mouseX, mouseY, TEXT_CONFIRM, px + 8,           btnY, 80, BTN_H);
-        renderButton(guiGraphics, mouseX, mouseY, TEXT_CANCEL, px + WIDTH - 88,  btnY, 80, BTN_H);
+        renderButton(guiGraphics, mouseX, mouseY, OK, px + 8, btnY, 80, BTN_H);
+        renderButton(guiGraphics, mouseX, mouseY, CANCEL, px + WIDTH - 88, btnY, 80, BTN_H);
     }
 
-    private void renderActionButton(GuiGraphics guiGraphics, int mouseX, int mouseY,
-                                     Component label, RecruitsRoute.WaypointAction.Type type,
-                                     int x, int y) {
-        WorldMapRenderPrimitives.button(guiGraphics, Minecraft.getInstance().font, mouseX, mouseY,
-                x, y, BTN_W, BTN_H, label, TEXT_COLOR, actionType == type, true);
+    private void renderActionButton(
+            GuiGraphics guiGraphics,
+            int mouseX,
+            int mouseY,
+            Component label,
+            RecruitsRoute.WaypointAction.Type type,
+            int x,
+            int y) {
+        boolean selected = actionType == type;
+        boolean hovered = mouseX >= x && mouseX <= x + BTN_W && mouseY >= y && mouseY <= y + BTN_H;
+        int bg = selected ? BTN_SELECTED_COLOR : (hovered ? BTN_HOVERED_COLOR : BTN_COLOR);
+        guiGraphics.fill(x, y, x + BTN_W, y + BTN_H, bg);
+        guiGraphics.renderOutline(x, y, BTN_W, BTN_H, selected ? TEXT_COLOR : OUTLINE_COLOR);
+        guiGraphics.drawCenteredString(
+                Minecraft.getInstance().font, label, x + BTN_W / 2, y + (BTN_H - 8) / 2, TEXT_COLOR);
     }
 
-    private void renderButton(GuiGraphics guiGraphics, int mouseX, int mouseY,
-                               Component label, int x, int y, int w, int h) {
-        WorldMapRenderPrimitives.button(guiGraphics, Minecraft.getInstance().font, mouseX, mouseY,
-                x, y, w, h, label, TEXT_COLOR, false, true);
+    private void renderButton(
+            GuiGraphics guiGraphics, int mouseX, int mouseY, Component label, int x, int y, int w, int h) {
+        boolean hovered = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+        guiGraphics.fill(x, y, x + w, y + h, hovered ? BTN_HOVERED_COLOR : BTN_COLOR);
+        guiGraphics.renderOutline(x, y, w, h, OUTLINE_COLOR);
+        guiGraphics.drawCenteredString(Minecraft.getInstance().font, label, x + w / 2, y + (h - 8) / 2, TEXT_COLOR);
     }
 
     public boolean mouseClicked(double mouseX, double mouseY) {
@@ -186,17 +192,23 @@ public class WaypointEditPopup {
             return true;
         }
 
-        int rowY = py + 48;
+        int rowY = py + 22;
 
         // Action: None
-        if (WorldMapRenderPrimitives.contains(mouseX, mouseY, px + 56, rowY, BTN_W, BTN_H)) {
+        if (mouseX >= px + ACTION_BUTTON_X
+                && mouseX <= px + ACTION_BUTTON_X + BTN_W
+                && mouseY >= rowY
+                && mouseY <= rowY + BTN_H) {
             actionType = null;
             waitField = null;
             waitFieldBuilt = false;
             return true;
         }
         // Action: Wait
-        if (WorldMapRenderPrimitives.contains(mouseX, mouseY, px + 56 + BTN_W + 4, rowY, BTN_W, BTN_H)) {
+        if (mouseX >= px + ACTION_BUTTON_X + BTN_W + 4
+                && mouseX <= px + ACTION_BUTTON_X + BTN_W * 2 + 4
+                && mouseY >= rowY
+                && mouseY <= rowY + BTN_H) {
             if (actionType != RecruitsRoute.WaypointAction.Type.WAIT) {
                 waitField = null;
                 waitFieldBuilt = false;
@@ -210,11 +222,16 @@ public class WaypointEditPopup {
         if (waitField != null) waitField.mouseClicked(mouseX, mouseY, 0);
 
         int btnY = py + HEIGHT - 18;
-        if (WorldMapRenderPrimitives.contains(mouseX, mouseY, px + 8, btnY, 80, BTN_H)) {
-            confirm(); return true;
+        if (mouseX >= px + 8 && mouseX <= px + 88 && mouseY >= btnY && mouseY <= btnY + BTN_H) {
+            confirm();
+            return true;
         }
-        if (WorldMapRenderPrimitives.contains(mouseX, mouseY, px + WIDTH - 88, btnY, 80, BTN_H)) {
-            close(); return true;
+        if (mouseX >= px + WIDTH - 88
+                && mouseX <= px + WIDTH - 8
+                && mouseY >= btnY
+                && mouseY <= btnY + BTN_H) {
+            close();
+            return true;
         }
 
         return true;
