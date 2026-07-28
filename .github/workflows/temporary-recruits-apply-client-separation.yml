@@ -31,8 +31,8 @@ jobs:
           git clone --branch port/neoforge-1.21.1 https://github.com/nekomario28/recruits.git "$SOURCE"
           cd "$SOURCE"
           test "$(git rev-parse HEAD)" = "ffe044eea112eca9c464027c7e7a37cda1b5f741"
-          git apply --check "$GITHUB_WORKSPACE/.github/temporary-recruits-final/client-villager-events.patch"
-          git apply "$GITHUB_WORKSPACE/.github/temporary-recruits-final/client-villager-events.patch"
+          git apply --check --recount "$GITHUB_WORKSPACE/.github/temporary-recruits-final/client-villager-events.patch"
+          git apply --recount "$GITHUB_WORKSPACE/.github/temporary-recruits-final/client-villager-events.patch"
           git diff --check
           ! grep -n 'net.minecraft.client\|com.talhanation.recruits.client' src/main/java/com/talhanation/recruits/VillagerEvents.java
           grep -F 'new ClientVillagerEvents()' src/main/java/com/talhanation/recruits/Main.java
