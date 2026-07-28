@@ -309,7 +309,7 @@ public class WorldMapScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(GuiGraphics guiGraphics) {
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         guiGraphics.fill(0, 0, width, height, DARK_GRAY_BG);
     }
 
@@ -611,14 +611,14 @@ public class WorldMapScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         if (routeNamePopup.isVisible() || routeEditPopup.isVisible() || waypointEditPopup.isVisible())
             return true;
         if (settingsPanel.isMouseBlocking(mouseX, mouseY, width, height)) return true;
         if (claimInfoMenu.isVisible()) claimInfoMenu.close();
         if (contextMenu.isVisible()) contextMenu.close();
 
-        camera.zoomAt(mouseX, mouseY, delta);
+        camera.zoomAt(mouseX, mouseY, scrollY);
         return true;
     }
 
