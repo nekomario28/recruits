@@ -5,7 +5,6 @@ import net.neoforged.neoforge.common.NeoForge;
 
 import com.talhanation.recruits.Main;
 import com.talhanation.recruits.FactionEvents;
-import com.talhanation.recruits.Main;
 import com.talhanation.recruits.config.RecruitsServerConfig;
 import com.talhanation.recruits.network.MessageToClientUpdateClaim;
 import com.talhanation.recruits.network.MessageToClientUpdateClaims;
@@ -18,21 +17,17 @@ import javax.annotation.Nullable;
 import java.util.*;
 import java.util.function.BooleanSupplier;
 public class RecruitsClaimManager {
-    private static final int CLAIMS_PER_SYNC_PACKET = 256;
-    private static final int CLAIM_CHUNKS_PER_SYNC_PACKET = 8192;
-
     private final Map<ChunkPos, RecruitsClaim> claims = new HashMap<>();
-    private final Map<UUID, RecruitsClaim> claimsById = new HashMap<>();
     private final Map<UUID, RecruitsClaim> activeSieges = new HashMap<>();
 
     public void load(ServerLevel level) {
         RecruitsClaimSaveData data = RecruitsClaimSaveData.get(level);
         this.claims.clear();
-        this.claimsById.clear();
         this.activeSieges.clear();
         for (RecruitsClaim claim : data.getAllClaims()) {
-            if (claim == null) continue;
-            this.indexClaim(claim);
+            for (ChunkPos pos : claim.getClaimedChunks()) {
+                this.claims.put(pos, claim);
+            }
             if (claim.isUnderSiege) {
                 this.activeSieges.put(claim.getUUID(), claim);
             }
@@ -41,7 +36,7 @@ public class RecruitsClaimManager {
 
     public void save(ServerLevel level) {
         RecruitsClaimSaveData data = RecruitsClaimSaveData.get(level);
-        data.setAllClaims(new ArrayList<>(this.claimsById.values()));
+        data.setAllClaims(new ArrayList<>(new HashSet<>(this.claims.values())));
         data.setDirty();
     }
 
@@ -53,16 +48,18 @@ public class RecruitsClaimManager {
         if (claim == null) return false;
 
         // ClaimEvent.Updated feuern – cancelable
-        boolean isNew = !claimsById.containsKey(claim.getUUID());
+        boolean isNew = claims.values().stream().noneMatch(c -> c.getUUID().equals(claim.getUUID()));
         ClaimEvent.Updated updateEvent = new ClaimEvent.Updated(claim, level, isNew);
         NeoForge.EVENT_BUS.post(updateEvent);
         if (updateEvent.isCanceled()) return false;
         if (!beforeCommit.getAsBoolean()) return false;
 
-        this.removeClaimFromIndexes(claim.getUUID());
+        claims.entrySet().removeIf(entry -> entry.getValue().getUUID().equals(claim.getUUID()));
 
-        if (!claim.isRemoved) {
-            this.indexClaim(claim);
+        if(!claim.isRemoved){
+            for (ChunkPos pos : claim.getClaimedChunks()) {
+                this.claims.put(pos, claim);
+            }
         }
 
         this.broadcastClaimsToAll(level);
@@ -75,22 +72,9 @@ public class RecruitsClaimManager {
             ServerLevel level = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer().overworld();
             NeoForge.EVENT_BUS.post(new ClaimEvent.Removed(claim, level));
 
-    public boolean removeClaim(ServerLevel level, UUID claimId) {
-        RecruitsClaim claim = this.getClaim(claimId);
-        if (claim == null) return false;
-
-        this.removeClaim(level, claim);
-        claim.isRemoved = true;
-        this.broadcastClaimUpdateToAll(level, claim);
-        return true;
-    }
-
-    private void removeClaim(ServerLevel level, RecruitsClaim claim) {
-        // ClaimEvent.Removed feuern
-        MinecraftForge.EVENT_BUS.post(new ClaimEvent.Removed(claim, level));
-
-        this.removeClaimFromIndexes(claim.getUUID());
-        activeSieges.remove(claim.getUUID());
+            claims.entrySet().removeIf(entry -> entry.getValue().equals(claim));
+            activeSieges.remove(claim.getUUID());
+        }
     }
 
     public void addActiveSiege(RecruitsClaim claim) {
@@ -125,13 +109,8 @@ public class RecruitsClaimManager {
         return this.getClaim(new ChunkPos(chunkX, chunkZ));
     }
 
-    @Nullable
-    public RecruitsClaim getClaim(UUID claimId) {
-        return claimId == null ? null : this.claimsById.get(claimId);
-    }
-
     public List<RecruitsClaim> getAllClaims() {
-        return new ArrayList<>(this.claimsById.values());
+        return new ArrayList<>(new HashSet<>(this.claims.values()));
     }
 
     public boolean claimExists(RecruitsClaim claim, List<ChunkPos> allPos) {
@@ -153,7 +132,6 @@ public class RecruitsClaimManager {
     }
 
     public void broadcastClaimsToAll(ServerLevel level) {
-        List<RecruitsClaim> allClaims = this.getAllClaims();
         for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
             Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
                     new MessageToClientUpdateClaims(
@@ -168,11 +146,6 @@ public class RecruitsClaimManager {
         }
     }
 
-    public void sendClaimsTo(ServerPlayer player) {
-        if (player == null) return;
-        this.sendClaimsTo(player, this.getAllClaims());
-    }
-
     public void broadcastClaimUpdateTo(RecruitsClaim claim, List<ServerPlayer> players) {
         if (claim == null || players == null || players.isEmpty()) return;
 
@@ -180,93 +153,5 @@ public class RecruitsClaimManager {
             Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
                     new MessageToClientUpdateClaim(claim));
         }
-    }
-
-    public void broadcastClaimUpdateToAll(ServerLevel level, RecruitsClaim claim) {
-        if (level == null || claim == null) return;
-
-        for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
-            Main.SIMPLE_CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
-                    new MessageToClientUpdateClaim(claim));
-        }
-    }
-
-    private void sendClaimsTo(ServerPlayer player, List<RecruitsClaim> claims) {
-        if (claims == null || claims.isEmpty()) {
-            sendClaimBatch(player, List.of(), true, true);
-            return;
-        }
-
-        boolean resetClaims = true;
-        int batchChunkCount = 0;
-        List<RecruitsClaim> batch = new ArrayList<>();
-
-        for (RecruitsClaim claim : claims) {
-            int claimChunkCount = chunkCount(claim);
-            boolean batchFull = batch.size() >= CLAIMS_PER_SYNC_PACKET;
-            boolean chunkBudgetFull =
-                    !batch.isEmpty()
-                            && batchChunkCount + claimChunkCount > CLAIM_CHUNKS_PER_SYNC_PACKET;
-            if (batchFull || chunkBudgetFull) {
-                sendClaimBatch(player, batch, resetClaims, false);
-                resetClaims = false;
-                batch = new ArrayList<>();
-                batchChunkCount = 0;
-            }
-
-            batch.add(claim);
-            batchChunkCount += claimChunkCount;
-        }
-
-        if (!batch.isEmpty()) {
-            sendClaimBatch(player, batch, resetClaims, true);
-        }
-    }
-
-    private void sendClaimBatch(
-            ServerPlayer player, List<RecruitsClaim> claims, boolean resetClaims, boolean syncComplete) {
-        Main.SIMPLE_CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
-                new MessageToClientUpdateClaims(
-                        claims,
-                        RecruitsServerConfig.ClaimingCost.get(),
-                        RecruitsServerConfig.ChunkCost.get(),
-                        RecruitsServerConfig.MaxClaimChunks.get(),
-                        RecruitsServerConfig.CascadeThePriceOfClaims.get(),
-                        RecruitsServerConfig.AllowClaiming.get(),
-                        RecruitsServerConfig.FogOfWarEnabled.get(),
-                        FactionEvents.getCurrency(),
-                        resetClaims,
-                        syncComplete
-                ));
-    }
-
-    private void indexClaim(RecruitsClaim claim) {
-        if (claim == null || claim.getUUID() == null) return;
-
-        this.claimsById.put(claim.getUUID(), claim);
-        if (claim.getClaimedChunks() == null) return;
-
-        for (ChunkPos pos : claim.getClaimedChunks()) {
-            if (pos != null) {
-                this.claims.put(pos, claim);
-            }
-        }
-    }
-
-    private void removeClaimFromIndexes(UUID claimId) {
-        RecruitsClaim claim = this.claimsById.remove(claimId);
-        if (claim == null || claim.getClaimedChunks() == null) return;
-
-        for (ChunkPos pos : claim.getClaimedChunks()) {
-            if (pos == null) continue;
-            RecruitsClaim mappedClaim = this.claims.get(pos);
-            if (mappedClaim != null && claimId.equals(mappedClaim.getUUID())) {
-                this.claims.remove(pos);
-            }
-        }
-    }
-
-    private static int chunkCount(RecruitsClaim claim) {
-        return claim == null || claim.getClaimedChunks() == null ? 0 : claim.getClaimedChunks().size();
     }
 }
