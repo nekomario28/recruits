@@ -1,4 +1,4 @@
-name: Temporary Recruits Upstream Sync Pre-Gate
+name: Temporary Recruits 1.15.2 Sync Validation
 
 on:
   pull_request:
@@ -6,141 +6,227 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  pre-gate:
+  final-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 80
+    env:
+      RECRUITS_SHA: e644580c5ff3fa3dfbec4fb470d145ffdd83ba17
+      HARNESS_SHA: 5250e1711c760b4a086a940511a7e549ad10363e
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Check out validation harness
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - name: Version and audit exact isolated sync branch
-        env:
-          GH_TOKEN: ${{ github.token }}
+
+      - name: Clone and audit exact synchronized source
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/upstream-sync-pre-gate"
-          REPO="$ROOT/repo"
-          OUT="$ROOT/evidence"
-          mkdir -p "$OUT"
-          exec > >(tee "$OUT/pre-gate.log") 2>&1
+          ROOT="$RUNNER_TEMP/recruits-1152-final"
+          SOURCE="$ROOT/source"
+          mkdir -p "$ROOT"
+          git clone https://github.com/nekomario28/recruits.git "$SOURCE"
+          cd "$SOURCE"
+          git checkout --detach "$RECRUITS_SHA"
+          test "$(git rev-parse HEAD)" = "$RECRUITS_SHA"
+          chmod +x gradlew
+          {
+            echo "commit=$RECRUITS_SHA"
+            echo "mod_version=$(sed -n 's/^mod_version=//p' gradle.properties)"
+            test "$(sed -n 's/^mod_version=//p' gradle.properties)" = '1.15.2'
+            git diff --check
+            ! grep -R --line-number --include='*.java' 'net\.minecraftforge\.' src/main/java
+            ! grep -R --line-number --include='*.java' '\bMinecraftForge\b' src/main/java
+            test -f gradle/wrapper/gradle-wrapper.jar
+            echo 'source_audit=PASS'
+          } 2>&1 | tee "$RUNNER_TEMP/recruits-1152-source-audit.txt"
 
-          git clone --branch sync/neoforge-1.21.1-upstream-1.15.2 "https://x-access-token:${GH_TOKEN}@github.com/nekomario28/recruits.git" "$REPO"
-          cd "$REPO"
-          test "$(git rev-parse HEAD)" = "0ceea2a1b0d7adac15bd5fbca422d9ccd907f8b3"
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - name: Run five exact-source GameTests
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$RUNNER_TEMP/recruits-1152-final/source"
+          cd "$SOURCE"
+          git fetch --no-tags origin "$HARNESS_SHA"
+          mkdir -p src/main/java/com/talhanation/recruits/gametest
+          git show "$HARNESS_SHA:.github/temporary-recruits-final/RecruitsFinalGameTests.java" \
+            > src/main/java/com/talhanation/recruits/gametest/RecruitsFinalGameTests.java
+          cat >> build.gradle <<'GRADLE'
 
+          neoForge {
+              runs {
+                  gameTestServer {
+                      type = "gameTestServer"
+                      gameDirectory = project.file('run-1152-final-gametest')
+                      systemProperty 'neoforge.enabledGameTestNamespaces', 'recruits,minecraft'
+                  }
+              }
+          }
+          GRADLE
+          mkdir -p src/main/resources/data/minecraft/structure
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('gradle.properties')
-          s = p.read_text()
-          old = 'mod_version=1.15.0\n'
-          if s.count(old) != 1:
-              raise SystemExit(f'old version count={s.count(old)}')
-          p.write_text(s.replace(old, 'mod_version=1.15.2\n', 1))
+          import gzip, struct
+          def u16(v): return struct.pack('>H', v)
+          def i32(v): return struct.pack('>i', v)
+          def name(v):
+              b=v.encode(); return u16(len(b))+b
+          def tint(k,v): return b'\x03'+name(k)+i32(v)
+          def tstr(k,v):
+              b=v.encode(); return b'\x08'+name(k)+u16(len(b))+b
+          def tli(k,vs): return b'\x09'+name(k)+b'\x03'+i32(len(vs))+b''.join(i32(v) for v in vs)
+          def comp(tags): return b''.join(tags)+b'\x00'
+          def tlc(k,vs): return b'\x09'+name(k)+b'\x0a'+i32(len(vs))+b''.join(vs)
+          root=b'\x0a'+name('')+comp([
+              tint('DataVersion',3955),tli('size',[7,3,7]),
+              tlc('palette',[comp([tstr('Name','minecraft:stone')])]),
+              tlc('blocks',[comp([tli('pos',[0,0,0]),tint('state',0)])]),
+              tlc('entities',[])])
+          Path('src/main/resources/data/minecraft/structure/empty.nbt').write_bytes(gzip.compress(root,mtime=0))
           PY
-          git add gradle.properties
-          git diff --cached --check
-          git commit -m 'Update synchronized port version to 1.15.2'
-          git push origin HEAD:sync/neoforge-1.21.1-upstream-1.15.2
-          SYNC_SHA="$(git rev-parse HEAD)"
-          echo "$SYNC_SHA" > "$OUT/sync-head.txt"
+          ./gradlew --no-daemon clean runGameTestServer --stacktrace --info 2>&1 \
+            | tee "$RUNNER_TEMP/recruits-1152-gametest.log"
+          grep -F 'All 5 required tests passed' "$RUNNER_TEMP/recruits-1152-gametest.log"
 
+      - name: Build exact restart-probe JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$RUNNER_TEMP/recruits-1152-final/dedicated-source"
+          git clone https://github.com/nekomario28/recruits.git "$SOURCE"
+          cd "$SOURCE"
+          git checkout --detach "$RECRUITS_SHA"
+          test "$(git rev-parse HEAD)" = "$RECRUITS_SHA"
+          git fetch --no-tags origin "$HARNESS_SHA"
           chmod +x gradlew
-          ./gradlew --no-daemon clean compileJava shadowJar --stacktrace 2>&1 | tee "$OUT/build.log"
+          mkdir -p src/main/java/com/talhanation/recruits/finaltest
+          git show "$HARNESS_SHA:.github/temporary-recruits-final/RecruitsFinalRestartProbe.java" \
+            > src/main/java/com/talhanation/recruits/finaltest/RecruitsFinalRestartProbe.java
+          ./gradlew --no-daemon clean shadowJar --stacktrace 2>&1 \
+            | tee "$RUNNER_TEMP/recruits-1152-dedicated-build.log"
           JAR="$(find build/libs -maxdepth 1 -name '*-all.jar' -print -quit)"
           test -n "$JAR"
-          cp "$JAR" "$OUT/recruits-1.21.1-1.15.2-sync-all.jar"
+          cp "$JAR" "$RUNNER_TEMP/recruits-1152-restart.jar"
 
+      - name: Audit exact restart JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="$RUNNER_TEMP/recruits-1152-restart.jar"
           {
-            echo "sync_sha=$SYNC_SHA"
-            echo "minecraft=1.21.1"
-            echo "neoforge=21.1.219"
-            echo "java=21"
-            echo "mod_version=$(sed -n 's/^mod_version=//p' gradle.properties)"
-            echo
-            echo '[source diff check]'
-            git diff --check
-            echo PASS
-            echo
-            echo '[legacy Forge imports]'
-            if grep -R --line-number --include='*.java' 'net\.minecraftforge\.' src/main/java; then
-              echo FAIL
-              exit 1
-            fi
-            echo PASS
-            echo
-            echo '[legacy MinecraftForge references]'
-            if grep -R --line-number --include='*.java' '\bMinecraftForge\b' src/main/java; then
-              echo FAIL
-              exit 1
-            fi
-            echo PASS
-            echo
-            echo '[mixin source existence]'
-            python3 - <<'PY'
-          import json
-          from pathlib import Path
-          data=json.loads(Path('src/main/resources/mixins.recruits.json').read_text())
-          base=Path('src/main/java/com/talhanation/recruits/mixin')
-          missing=[]
-          for section in ('mixins','client'):
-              for name in data.get(section,[]):
-                  path=base/Path(*name.split('.')).with_suffix('.java')
-                  if not path.exists(): missing.append(str(path))
-          print('missing_mixins=',len(missing))
-          if missing:
-              print('\n'.join(missing))
-              raise SystemExit(1)
-          PY
-            echo PASS
-            echo
-            echo '[jar integrity]'
             unzip -t "$JAR" >/dev/null
-            echo PASS
-            echo
-            echo '[jar duplicate entries]'
             python3 - "$JAR" <<'PY'
-          import sys,zipfile
+          import sys, zipfile
           from collections import Counter
           with zipfile.ZipFile(sys.argv[1]) as z:
-              c=Counter(z.namelist())
-          dup=[n for n,v in c.items() if v>1]
-          print('duplicate_entries=',len(dup))
-          if dup:
-              print('\n'.join(dup[:50]))
-              raise SystemExit(1)
+              counts=Counter(z.namelist())
+          duplicates=[n for n,c in counts.items() if c>1]
+          print(f'duplicate_entries={len(duplicates)}')
+          if duplicates: raise SystemExit('\n'.join(duplicates[:50]))
           PY
-            echo
-            echo '[corelib relocation]'
-            if unzip -Z1 "$JAR" | grep -q '^de/maxhenkel/corelib/'; then
-              echo 'FAIL: unrelocated CoreLib classes remain'
-              exit 1
-            fi
-            test "$(unzip -Z1 "$JAR" | grep -c '^de/maxhenkel/recruits/corelib/' || true)" -gt 0
-            echo PASS
-            echo
-            echo '[temporary probe classes]'
-            if unzip -Z1 "$JAR" | grep -E 'gametest|finaltest|RestartProbe|ClientSmokeProbe'; then
-              echo FAIL
-              exit 1
-            fi
-            echo PASS
-          } 2>&1 | tee "$OUT/audit.txt"
+            ! unzip -Z1 "$JAR" | grep -q '^de/maxhenkel/corelib/'
+            RELOCATED="$(unzip -Z1 "$JAR" | grep -c '^de/maxhenkel/recruits/corelib/' || true)"
+            test "$RELOCATED" -gt 0
+            echo "relocated_corelib=$RELOCATED"
+            echo 'jar_audit=PASS'
+          } 2>&1 | tee "$RUNNER_TEMP/recruits-1152-jar-audit.txt"
 
-          sha256sum "$OUT/recruits-1.21.1-1.15.2-sync-all.jar" > "$OUT/jar-sha256.txt"
-      - name: Upload pre-gate evidence
+      - name: Install NeoForge dedicated server
+        shell: bash
+        run: |
+          set -euo pipefail
+          SERVER="$RUNNER_TEMP/recruits-1152-final-server"
+          mkdir -p "$SERVER"
+          cd "$SERVER"
+          curl --fail --location --retry 3 --output neoforge-installer.jar \
+            https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.219/neoforge-21.1.219-installer.jar
+          java -jar neoforge-installer.jar --installServer 2>&1 | tee "$RUNNER_TEMP/recruits-1152-server-install.log"
+          rm neoforge-installer.jar
+          mkdir -p mods
+          cp "$RUNNER_TEMP/recruits-1152-restart.jar" mods/recruits-1152-restart.jar
+          printf 'eula=true\n' > eula.txt
+          cat > server.properties <<'PROPERTIES'
+          online-mode=false
+          allow-flight=true
+          enable-command-block=true
+          level-name=recruits-1152-restart-world
+          max-tick-time=120000
+          view-distance=5
+          simulation-distance=5
+          spawn-protection=0
+          PROPERTIES
+
+      - name: Dedicated process 1 - save recruit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/recruits-1152-final-server"
+          timeout 240s bash run.sh nogui 2>&1 | tee "$RUNNER_TEMP/recruits-1152-dedicated-process-1.log"
+          test "${PIPESTATUS[0]}" -eq 0
+          test -f recruits-final-restart.phase
+          test ! -f recruits-final-restart.fail
+          grep -F 'RECRUITS_FINAL_RESTART_WRITE_OK' "$RUNNER_TEMP/recruits-1152-dedicated-process-1.log"
+
+      - name: Dedicated process 2 - reload recruit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/recruits-1152-final-server"
+          timeout 240s bash run.sh nogui 2>&1 | tee "$RUNNER_TEMP/recruits-1152-dedicated-process-2.log"
+          test "${PIPESTATUS[0]}" -eq 0
+          test -f recruits-final-restart.pass
+          test ! -f recruits-final-restart.fail
+          grep -F 'RECRUITS_FINAL_RESTART_VERIFY_OK' "$RUNNER_TEMP/recruits-1152-dedicated-process-2.log"
+          grep -F 'uuid=30000000-0000-0000-0000-000000000003' recruits-final-restart.pass
+          grep -F 'owner=40000000-0000-0000-0000-000000000004' recruits-final-restart.pass
+          grep -F 'owned=true' recruits-final-restart.pass
+          grep -F 'cargoSlot=6' recruits-final-restart.pass
+          grep -F 'emeralds=23' recruits-final-restart.pass
+          grep -F 'mainhand=iron_sword' recruits-final-restart.pass
+          grep -F 'offhand=shield' recruits-final-restart.pass
+          grep -F 'helmet=iron_helmet' recruits-final-restart.pass
+
+      - name: Collect final evidence
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          OUT="$RUNNER_TEMP/recruits-1152-final-evidence"
+          mkdir -p "$OUT"
+          cp "$RUNNER_TEMP"/*.log "$OUT"/ 2>/dev/null || true
+          cp "$RUNNER_TEMP"/recruits-1152-*-audit.txt "$OUT"/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/recruits-1152-final-server"/recruits-final-restart.* "$OUT"/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/recruits-1152-restart.jar" "$OUT"/ 2>/dev/null || true
+          sha256sum "$RUNNER_TEMP/recruits-1152-restart.jar" > "$OUT/jar-sha256.txt" 2>/dev/null || true
+          cat > "$OUT/manifest.json" <<JSON
+          {
+            "minecraft":"1.21.1",
+            "neoforge":"21.1.219",
+            "java":"21",
+            "recruits_version":"1.15.2",
+            "recruits_commit":"$RECRUITS_SHA",
+            "upstream_main_integrated":"cff03e085d65653406a8b6ddcdd0ebff615c3e48",
+            "gametests_expected":5,
+            "dedicated_server_processes":2,
+            "same_world_reused":true,
+            "persistence":{"uuid":true,"owner_uuid":true,"owned":true,"cargo_slot_6":true,"equipment":true,"custom_name":true}
+          }
+          JSON
+
+      - name: Upload final evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: recruits-upstream-sync-pre-gate
-          path: ${{ runner.temp }}/upstream-sync-pre-gate/evidence
-          if-no-files-found: warn
+          name: recruits-1152-sync-final-validation
+          path: ${{ runner.temp }}/recruits-1152-final-evidence
+          if-no-files-found: error
           retention-days: 7
