@@ -1,0 +1,114 @@
+name: Temporary Recruits Upstream Merge Prototype
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  merge-prototype:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      WORK_BRANCH: sync/neoforge-1.21.1-upstream-1.15.2
+      EXPECTED_PORT_SHA: 1848e8ec33376f8a933945d4704b3e4c49920d8e
+      UPSTREAM_SHA: cff03e085d65653406a8b6ddcdd0ebff615c3e48
+    steps:
+      - name: Check out harness
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Merge exact upstream history into isolated sync branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/recruits-upstream-merge"
+          REPO="$ROOT/repo"
+          OUT="$ROOT/evidence"
+          mkdir -p "$OUT"
+
+          git clone --branch "$WORK_BRANCH" \
+            "https://x-access-token:${GH_TOKEN}@github.com/nekomario28/recruits.git" "$REPO"
+          cd "$REPO"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_PORT_SHA"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git remote add upstream https://github.com/talhanation/recruits.git
+          git fetch --no-tags upstream "$UPSTREAM_SHA"
+
+          set +e
+          git merge --no-edit -X ours "$UPSTREAM_SHA" > "$OUT/merge.log" 2>&1
+          MERGE_RC=$?
+          set -e
+          printf 'initial_merge_exit_code=%s\n' "$MERGE_RC" > "$OUT/merge-result.txt"
+
+          if [ "$MERGE_RC" -ne 0 ]; then
+            git diff --name-only --diff-filter=U | sort > "$OUT/conflicts-before-resolution.txt"
+
+            while IFS= read -r path; do
+              [ -n "$path" ] || continue
+              case "$path" in
+                .idea/*|src/main/resources/META-INF/mods.toml|src/main/java/com/talhanation/recruits/client/gui/worldmap/ClaimInfoMenu.java|src/main/java/com/talhanation/recruits/client/gui/worldmap/RouteRenderer.java|src/main/java/com/talhanation/recruits/client/gui/worldmap/WorldMapContextMenu.java|src/main/java/com/talhanation/recruits/compat/corpse/Corpse.java)
+                  git rm -f --ignore-unmatch -- "$path"
+                  ;;
+                src/main/resources/assets/recruits/lang/en_us.json|src/main/resources/assets/recruits/lang/ru_ru.json)
+                  git checkout --theirs -- "$path"
+                  git add -- "$path"
+                  ;;
+                *)
+                  git checkout --ours -- "$path"
+                  git add -- "$path"
+                  ;;
+              esac
+            done < "$OUT/conflicts-before-resolution.txt"
+
+            test -z "$(git diff --name-only --diff-filter=U)"
+            git commit --no-edit
+          else
+            : > "$OUT/conflicts-before-resolution.txt"
+          fi
+
+          git status --short > "$OUT/status-after-merge.txt"
+          test -z "$(git status --porcelain)"
+          MERGED_SHA="$(git rev-parse HEAD)"
+          echo "$MERGED_SHA" > "$OUT/merged-head.txt"
+          git push origin "HEAD:$WORK_BRANCH"
+
+          git diff --name-status "$EXPECTED_PORT_SHA" "$MERGED_SHA" > "$OUT/merged-tree-diff.tsv"
+          git log -1 --pretty=fuller > "$OUT/merge-commit.txt"
+
+      - name: Compile merged sync branch and capture exact failures
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="$RUNNER_TEMP/recruits-upstream-merge/repo"
+          OUT="$RUNNER_TEMP/recruits-upstream-merge/evidence"
+          cd "$REPO"
+          chmod +x gradlew
+          set +e
+          ./gradlew --no-daemon clean compileJava --stacktrace 2>&1 | tee "$OUT/compile.log"
+          COMPILE_RC=${PIPESTATUS[0]}
+          set -e
+          printf 'compile_exit_code=%s\n' "$COMPILE_RC" > "$OUT/compile-result.txt"
+          grep -E '^.*error:|FAILURE: Build failed|BUILD SUCCESSFUL' "$OUT/compile.log" \
+            > "$OUT/compile-key-lines.txt" || true
+
+      - name: Upload merge prototype evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recruits-upstream-merge-prototype
+          path: ${{ runner.temp }}/recruits-upstream-merge/evidence
+          if-no-files-found: error
+          retention-days: 7
