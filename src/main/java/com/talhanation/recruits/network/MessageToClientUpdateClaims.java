@@ -1,5 +1,8 @@
 package com.talhanation.recruits.network;
 
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+
 import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.client.gui.worldmap.claim.WorldMapClaimIndex;
 import com.talhanation.recruits.network.codec.ClaimNetworkCodec;
@@ -59,6 +62,7 @@ public class MessageToClientUpdateClaims implements RecruitsMessage<MessageToCli
     }
 
     @Override
+    @OnlyIn(Dist.CLIENT)
     public void executeClientSide(RecruitsNetworkContext context) {
         if (resetClaims) {
             ClientManager.recruitsClaims = new ArrayList<>(this.claims);

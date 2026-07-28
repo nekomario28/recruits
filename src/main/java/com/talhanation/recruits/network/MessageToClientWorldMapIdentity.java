@@ -1,5 +1,8 @@
 package com.talhanation.recruits.network;
 
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+
 import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.client.gui.worldmap.storage.WorldMapCacheManager;
 import com.talhanation.recruits.client.gui.worldmap.storage.WorldMapStorageId;
@@ -27,6 +30,7 @@ public class MessageToClientWorldMapIdentity implements RecruitsMessage<MessageT
     }
 
     @Override
+    @OnlyIn(Dist.CLIENT)
     public void executeClientSide(RecruitsNetworkContext context) {
         if (worldId == null) return;
         WorldMapStorageId.setServerWorldId(worldId);

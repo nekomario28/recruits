@@ -1,5 +1,8 @@
 package com.talhanation.recruits.network;
 
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+
 import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.client.api.ClientClaimEvent;
 import com.talhanation.recruits.client.gui.worldmap.claim.WorldMapClaimIndex;
@@ -27,10 +30,12 @@ public class MessageToClientUpdateClaim implements RecruitsMessage<MessageToClie
     }
 
     @Override
+    @OnlyIn(Dist.CLIENT)
     public void executeClientSide(RecruitsNetworkContext context) {
         updateOrAddClaim(this.claim);
     }
 
+    @OnlyIn(Dist.CLIENT)
     private void updateOrAddClaim(RecruitsClaim newClaim) {
         if (newClaim == null) return;
         if (newClaim.isRemoved) {
@@ -58,6 +63,7 @@ public class MessageToClientUpdateClaim implements RecruitsMessage<MessageToClie
         NeoForge.EVENT_BUS.post(new ClientClaimEvent.DataUpdated(newClaim, false));
     }
 
+    @OnlyIn(Dist.CLIENT)
     private void removeClaim(RecruitsClaim removedClaim) {
         boolean wasCurrentClaim = ClientManager.currentClaim != null
                 && ClientManager.currentClaim.getUUID().equals(removedClaim.getUUID());
