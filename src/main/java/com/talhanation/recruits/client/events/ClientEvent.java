@@ -1,5 +1,9 @@
 package com.talhanation.recruits.client.events;
 
+import net.neoforged.neoforge.client.event.ModelEvent;
+
+import net.neoforged.bus.api.SubscribeEvent;
+
 
 import com.talhanation.recruits.Main;
 import com.talhanation.recruits.client.models.RecruitVillagerModel;
@@ -11,7 +15,6 @@ import com.talhanation.recruits.config.RecruitsClientConfig;
 import com.talhanation.recruits.init.ModEntityTypes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelLayerLocation;
-import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.entity.EntityRenderers;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
@@ -83,13 +86,6 @@ public class ClientEvent {
     @SubscribeEvent
     public static void modelBakingCompleted(ModelEvent.BakingCompleted event) {
         WorldMapCacheManager.getInstance().onClientModelsReloaded();
-    }
-
-    @SubscribeEvent
-    public static void textureStitchCompleted(TextureStitchEvent.Post event) {
-        if (TextureAtlas.LOCATION_BLOCKS.equals(event.getAtlas().location())) {
-            WorldMapCacheManager.getInstance().onClientBlockAtlasStitched();
-        }
     }
 
     @Nullable

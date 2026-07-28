@@ -1,5 +1,9 @@
 package com.talhanation.recruits.client.events;
 
+import net.neoforged.neoforge.event.level.ChunkEvent;
+
+import com.talhanation.recruits.client.gui.worldmap.WorldMapScreen;
+
 import com.talhanation.recruits.client.gui.worldmap.storage.WorldMapCacheManager;
 import com.talhanation.recruits.client.gui.worldmap.storage.WorldMapStorageId;
 import com.talhanation.recruits.config.RecruitsClientConfig;
