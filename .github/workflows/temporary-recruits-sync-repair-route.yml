@@ -1,4 +1,4 @@
-name: Temporary Recruits Route Syntax Repair
+name: Temporary Recruits NeoForge API Repair
 
 on:
   pull_request:
@@ -19,35 +19,239 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - name: Patch isolated sync branch
+      - name: Port first API layer on isolated sync branch
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/route-repair"
+          ROOT="$RUNNER_TEMP/api-repair"
           REPO="$ROOT/repo"
           OUT="$ROOT/evidence"
           mkdir -p "$OUT"
           git clone --branch sync/neoforge-1.21.1-upstream-1.15.2 "https://x-access-token:${GH_TOKEN}@github.com/nekomario28/recruits.git" "$REPO"
           cd "$REPO"
-          test "$(git rev-parse HEAD)" = "fbc824d1524d9dd9ebf862fe61382f326e7e4d5f"
+          test "$(git rev-parse HEAD)" = "8c6e6e2af59cd570b279a516a144733421a81490"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+          cat > src/main/java/com/talhanation/recruits/network/MessageToClientWorldMapIdentity.java <<'JAVA'
+          package com.talhanation.recruits.network;
+
+          import com.talhanation.recruits.client.ClientManager;
+          import com.talhanation.recruits.client.gui.worldmap.storage.WorldMapCacheManager;
+          import com.talhanation.recruits.client.gui.worldmap.storage.WorldMapStorageId;
+          import com.talhanation.recruits.network.compat.RecruitsMessage;
+          import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
+          import net.minecraft.client.Minecraft;
+          import net.minecraft.network.FriendlyByteBuf;
+          import net.minecraft.network.protocol.PacketFlow;
+
+          import java.util.UUID;
+
+          public class MessageToClientWorldMapIdentity implements RecruitsMessage<MessageToClientWorldMapIdentity> {
+              private UUID worldId;
+
+              public MessageToClientWorldMapIdentity() {
+              }
+
+              public MessageToClientWorldMapIdentity(UUID worldId) {
+                  this.worldId = worldId;
+              }
+
+              @Override
+              public PacketFlow getExecutingSide() {
+                  return PacketFlow.CLIENTBOUND;
+              }
+
+              @Override
+              public void executeClientSide(RecruitsNetworkContext context) {
+                  if (worldId == null) return;
+
+                  WorldMapStorageId.setServerWorldId(worldId);
+                  Minecraft mc = Minecraft.getInstance();
+                  if (mc.level != null) {
+                      WorldMapCacheManager.getInstance().initialize(mc.level);
+                  }
+                  ClientManager.loadRoutes();
+                  ClientManager.loadSpecialStates();
+              }
+
+              @Override
+              public MessageToClientWorldMapIdentity fromBytes(FriendlyByteBuf buf) {
+                  this.worldId = buf.readUUID();
+                  return this;
+              }
+
+              @Override
+              public void toBytes(FriendlyByteBuf buf) {
+                  buf.writeUUID(this.worldId);
+              }
+          }
+          JAVA
+
+          cat > src/main/java/com/talhanation/recruits/compat/corpse/RecruitCorpseEntityTypeResolver.java <<'JAVA'
+          package com.talhanation.recruits.compat.corpse;
+
+          import com.talhanation.recruits.Main;
+          import com.talhanation.recruits.entities.AbstractRecruitEntity;
+          import net.minecraft.core.registries.BuiltInRegistries;
+          import net.minecraft.resources.ResourceKey;
+          import net.minecraft.resources.ResourceLocation;
+          import net.minecraft.world.entity.Entity;
+          import net.minecraft.world.entity.EntityType;
+          import net.minecraft.world.level.Level;
+          import org.jetbrains.annotations.Nullable;
+
+          import java.nio.charset.StandardCharsets;
+          import java.util.Map;
+          import java.util.concurrent.ConcurrentHashMap;
+          import java.util.zip.CRC32;
+
+          public final class RecruitCorpseEntityTypeResolver {
+              private static final ResourceLocation DEFAULT_RECRUIT_ID = ResourceLocation.fromNamespaceAndPath(Main.MOD_ID, "recruit");
+              private static final ResourceLocation DEFAULT_SCOUT_ID = ResourceLocation.fromNamespaceAndPath(Main.MOD_ID, "scout");
+              private static final Map<Integer, EntityType<? extends AbstractRecruitEntity>> RESOLVED_TYPES = new ConcurrentHashMap<>();
+
+              private RecruitCorpseEntityTypeResolver() {
+              }
+
+              public static int getEntityTypeHash(AbstractRecruitEntity recruit) {
+                  ResourceLocation id = BuiltInRegistries.ENTITY_TYPE.getKey(recruit.getType());
+                  return id == null ? 0 : stableHash(id);
+              }
+
+              @Nullable
+              public static EntityType<? extends AbstractRecruitEntity> resolveEntityType(int hash, boolean companionFallback, Level level) {
+                  if (hash != 0) {
+                      EntityType<? extends AbstractRecruitEntity> cached = RESOLVED_TYPES.get(hash);
+                      if (cached != null) return cached;
+
+                      for (Map.Entry<ResourceKey<EntityType<?>>, EntityType<?>> entry : BuiltInRegistries.ENTITY_TYPE.entrySet()) {
+                          ResourceLocation id = entry.getKey().location();
+                          if (!Main.MOD_ID.equals(id.getNamespace()) || stableHash(id) != hash) continue;
+
+                          EntityType<?> rawType = entry.getValue();
+                          Entity probe = rawType.create(level);
+                          if (probe instanceof AbstractRecruitEntity) {
+                              @SuppressWarnings("unchecked")
+                              EntityType<? extends AbstractRecruitEntity> recruitType = (EntityType<? extends AbstractRecruitEntity>) rawType;
+                              RESOLVED_TYPES.put(hash, recruitType);
+                              return recruitType;
+                          }
+                      }
+                  }
+
+                  ResourceLocation fallbackId = companionFallback ? DEFAULT_SCOUT_ID : DEFAULT_RECRUIT_ID;
+                  EntityType<?> fallbackType = BuiltInRegistries.ENTITY_TYPE.get(fallbackId);
+                  if (fallbackType == null) return null;
+
+                  Entity fallbackProbe = fallbackType.create(level);
+                  if (fallbackProbe instanceof AbstractRecruitEntity) {
+                      @SuppressWarnings("unchecked")
+                      EntityType<? extends AbstractRecruitEntity> recruitType = (EntityType<? extends AbstractRecruitEntity>) fallbackType;
+                      return recruitType;
+                  }
+                  return null;
+              }
+
+              private static int stableHash(ResourceLocation id) {
+                  CRC32 crc32 = new CRC32();
+                  crc32.update(id.toString().getBytes(StandardCharsets.UTF_8));
+                  return (int) crc32.getValue();
+              }
+          }
+          JAVA
+
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteEditPopup.java')
-          s = p.read_text()
-          old = "                });\n    }\n\n    private void deleteRoute()"
-          new = "                }));\n    }\n\n    private void deleteRoute()"
-          assert s.count(old) == 1, s.count(old)
-          p.write_text(s.replace(old, new, 1))
+          import json, re
+
+          root = Path('src/main/java')
+
+          def add_import(path, imp):
+              p = Path(path)
+              s = p.read_text()
+              line = f'import {imp};\n'
+              if line in s:
+                  return
+              m = re.match(r'(package [^;]+;\n)', s)
+              if not m:
+                  raise SystemExit(f'package declaration missing: {p}')
+              p.write_text(s[:m.end()] + '\n' + line + s[m.end():])
+
+          # Resolve newly split world-map class packages from the exact tree.
+          wanted = ['ChunkTileManager', 'WorldMapContextMenu', 'ClaimInfoMenu', 'RouteNamePopup', 'RouteEditPopup', 'WaypointEditPopup']
+          found = {}
+          for p in root.rglob('*.java'):
+              text = p.read_text(errors='ignore')
+              pm = re.search(r'^package\s+([^;]+);', text, re.M)
+              if not pm:
+                  continue
+              for name in wanted:
+                  if re.search(r'\b(class|record|interface)\s+' + re.escape(name) + r'\b', text):
+                      found[name] = pm.group(1) + '.' + name
+          missing = [name for name in wanted if name not in found]
+          if missing:
+              raise SystemExit(f'missing world-map classes: {missing}')
+          for imp in found.values():
+              add_import('src/main/java/com/talhanation/recruits/client/gui/worldmap/WorldMapScreen.java', imp)
+
+          add_import('src/main/java/com/talhanation/recruits/client/events/ClientPlayerEvents.java',
+                     'com.talhanation.recruits.client.gui.worldmap.WorldMapScreen')
+          add_import('src/main/java/com/talhanation/recruits/client/events/ClientPlayerEvents.java',
+                     'net.neoforged.neoforge.event.level.ChunkEvent')
+          add_import('src/main/java/com/talhanation/recruits/client/events/ClientEvent.java',
+                     'net.neoforged.bus.api.SubscribeEvent')
+          add_import('src/main/java/com/talhanation/recruits/client/events/ClientEvent.java',
+                     'net.neoforged.neoforge.client.event.ModelEvent')
+
+          p = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/color/MapBlockColorResolver.java')
+          s = p.read_text().replace(
+              'import net.minecraftforge.client.model.data.ModelData;',
+              'import net.neoforged.neoforge.client.model.data.ModelData;')
+          p.write_text(s)
+
+          p = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/color/MapStateClassifier.java')
+          s = p.read_text().replace('import net.minecraft.world.level.block.GlassBlock;\n', '')
+          s = s.replace('        if (block instanceof GlassBlock) return true;\n', '')
+          p.write_text(s)
+
+          p = Path('src/main/java/com/talhanation/recruits/client/events/ClientEvent.java')
+          s = p.read_text().replace('import net.minecraft.client.renderer.texture.TextureAtlas;\n', '')
+          block = '''    @SubscribeEvent
+              public static void textureStitchCompleted(TextureStitchEvent.Post event) {
+                  if (TextureAtlas.LOCATION_BLOCKS.equals(event.getAtlas().location())) {
+                      WorldMapCacheManager.getInstance().onClientBlockAtlasStitched();
+                  }
+              }
+          '''
+          # Source indentation is four spaces; normalize with regex to avoid merge whitespace differences.
+          s, count = re.subn(
+              r'\n\s*@SubscribeEvent\n\s*public static void textureStitchCompleted\(TextureStitchEvent\.Post event\) \{\n\s*if \(TextureAtlas\.LOCATION_BLOCKS\.equals\(event\.getAtlas\(\)\.location\(\)\)\) \{\n\s*WorldMapCacheManager\.getInstance\(\)\.onClientBlockAtlasStitched\(\);\n\s*\}\n\s*\}\n',
+              '\n', s, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one obsolete texture stitch handler, found {count}')
+          p.write_text(s)
+
+          mixins = Path('src/main/resources/mixins.recruits.json')
+          data = json.loads(mixins.read_text())
+          client = data.get('client', [])
+          if 'client.ClientLevelMixin' not in client:
+              raise SystemExit('ClientLevelMixin registration missing before removal')
+          client.remove('client.ClientLevelMixin')
+          mixins.write_text(json.dumps(data, indent=2) + '\n')
+          Path('src/main/java/com/talhanation/recruits/mixin/client/ClientLevelMixin.java').unlink()
           PY
-          git add src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteEditPopup.java
+
+          git add -A
           git diff --cached --check
-          git commit -m 'Fix route transfer screen construction'
+          git diff --cached --name-status > "$OUT/repaired-files.tsv"
+          git diff --cached --stat > "$OUT/repair-stat.txt"
+          git commit -m 'Port upstream world map support to NeoForge APIs'
           git push origin HEAD:sync/neoforge-1.21.1-upstream-1.15.2
           git rev-parse HEAD | tee "$OUT/repaired-head.txt"
+
           chmod +x gradlew
           set +e
           ./gradlew --no-daemon clean compileJava --stacktrace 2>&1 | tee "$OUT/compile.log"
@@ -59,7 +263,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: recruits-route-syntax-repair
-          path: ${{ runner.temp }}/route-repair/evidence
+          name: recruits-neoforge-api-repair
+          path: ${{ runner.temp }}/api-repair/evidence
           if-no-files-found: error
           retention-days: 7
