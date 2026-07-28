@@ -107,7 +107,6 @@ public class RouteEditPopup {
                     parent.showMapNotice(TEXT_FEEDBACK_TRANSFER, 0xFFFFD36A);
                     Minecraft.getInstance().setScreen(parent);
                 });
-        Minecraft.getInstance().setScreen(transferScreen);
     }
 
     private void deleteRoute() {

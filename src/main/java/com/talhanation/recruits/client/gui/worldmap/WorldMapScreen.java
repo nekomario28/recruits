@@ -1,50 +1,64 @@
 package com.talhanation.recruits.client.gui.worldmap;
 
+import com.mojang.blaze3d.platform.Lighting;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
+import com.talhanation.recruits.Main;
 import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.client.gui.widgets.DropDownMenu;
 import com.talhanation.recruits.compat.smallships.SmallShips;
 import com.talhanation.recruits.network.MessageUpdateClaim;
 import com.talhanation.recruits.world.RecruitsClaim;
 import com.talhanation.recruits.world.RecruitsFaction;
+import com.talhanation.recruits.world.RecruitsPlayerInfo;
 import com.talhanation.recruits.world.RecruitsRoute;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.vehicle.Boat;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
+import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
 
 import javax.annotation.Nullable;
-import java.awt.Point;
-import java.awt.Rectangle;
+import java.awt.*;
+import java.util.*;
 import java.util.List;
-import java.util.UUID;
+
+import static com.talhanation.recruits.client.ClientManager.ownFaction;
 
 public class WorldMapScreen extends Screen {
     private static final ResourceLocation MAP_ICONS = ResourceLocation.withDefaultNamespace("textures/map/map_icons.png");
     private final ChunkTileManager tileManager;
     private final Player player;
-    private final WorldMapClaimController claimController;
+    private static final double MIN_SCALE = 0.2;
+    private static final double MAX_SCALE = 10.0;
     private static final double DEFAULT_SCALE = 2.0;
+    private static final double SCALE_STEP = 0.1;
     private static final int CHUNK_HIGHLIGHT_COLOR = 0x40FFFFFF;
     private static final int CHUNK_SELECTION_COLOR = 0xFFFFFFFF;
     private static final int DARK_GRAY_BG = 0xFF101010;
-    private static final int CLAIM_SCAN_PREVIEW_RADIUS = 16;
 
     double offsetX = 0, offsetZ = 0;
     public static double scale = DEFAULT_SCALE;
     public double lastMouseX, lastMouseY;
     private boolean isDragging = false;
-    private boolean initializedOnce = false;
     private ChunkPos hoveredChunk = null;
-    public ChunkPos selectedChunk = null;
+    ChunkPos selectedChunk = null;
     private int clickedBlockX = 0, clickedBlockZ = 0;
     private int hoverBlockX = 0, hoverBlockZ = 0;
-    public WorldMapContextMenu contextMenu;
-    public RecruitsClaim selectedClaim = null;
+    private WorldMapContextMenu contextMenu;
+    RecruitsClaim selectedClaim = null;
     private ClaimInfoMenu claimInfoMenu;
     public RecruitsRoute selectedRoute;
 
@@ -90,13 +104,10 @@ public class WorldMapScreen extends Screen {
 
     public WorldMapScreen() {
         super(Component.literal(""));
-        this.mapCache = WorldMapCacheManager.getInstance();
-        this.mapRenderer = new WorldMapRenderer(mapCache);
-        this.camera = new WorldMapCamera(this);
-        this.player = Minecraft.getInstance().player;
-        this.claimController = new WorldMapClaimController(Minecraft.getInstance(), player, camera);
         this.contextMenu = new WorldMapContextMenu(this);
         this.claimInfoMenu = new ClaimInfoMenu(this);
+        this.tileManager = ChunkTileManager.getInstance();
+        this.player = Minecraft.getInstance().player;
     }
 
     public BlockPos getHoveredBlockPos() {
@@ -124,10 +135,6 @@ public class WorldMapScreen extends Screen {
         return player.hasPermissions(2) && player.isCreative();
     }
 
-    public boolean isPanningMap() {
-        return isDragging;
-    }
-
     public double getScale() {
         return scale;
     }
@@ -136,50 +143,19 @@ public class WorldMapScreen extends Screen {
         this.selectedChunk = chunk;
     }
 
-    public ChunkPos selectedChunk() {
-        return selectedChunk;
-    }
-
-    public RecruitsClaim selectedClaim() {
-        return selectedClaim;
-    }
-
-    public void clearSelectedChunk() {
-        selectedChunk = null;
-    }
-
-    public void clearSelectedClaim() {
-        selectedClaim = null;
-    }
-
-    public int snapshotWorldX() {
-        return snapshotWorldX;
-    }
-
-    public int snapshotWorldZ() {
-        return snapshotWorldZ;
-    }
-
     @Override
     protected void init() {
         super.init();
         if (minecraft.level != null && player != null) {
-            mapCache.initialize(minecraft.level);
-            camera.init(player, initializedOnce);
+            tileManager.initialize(minecraft.level);
+            centerOnPlayer();
         }
-        initializedOnce = true;
         claimInfoMenu.init();
         ClientManager.loadRoutes();
         initRouteUI();
         routeNamePopup = new RouteNamePopup(this);
         routeEditPopup = new RouteEditPopup(this, player);
         waypointEditPopup = new WaypointEditPopup(this);
-    }
-
-    @Override
-    public void resize(Minecraft minecraft, int width, int height) {
-        camera.rememberCurrentView();
-        super.resize(minecraft, width, height);
     }
 
     private void initRouteUI() {
@@ -212,8 +188,22 @@ public class WorldMapScreen extends Screen {
     }
 
     // -------------------------------------------------------------------------
-    // Route UI
+    // Route buttons (rendered manually to match popup style)
     // -------------------------------------------------------------------------
+
+    private int getAddBtnX() {
+        return ROUTE_UI_X + ROUTE_DROPDOWN_W + ROUTE_BTN_GAP;
+    }
+
+    private int getEditBtnX() {
+        return getAddBtnX() + ROUTE_BTN_SIZE + ROUTE_BTN_GAP;
+    }
+
+    private int getTransBtnX() {
+        return getEditBtnX() + ROUTE_BTN_SIZE + ROUTE_BTN_GAP;
+    }
+
+    public boolean claimTransparency = false;
 
     private void renderRouteUI(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
         renderRouteDropdown(guiGraphics, mouseX, mouseY, partialTicks);
@@ -248,15 +238,23 @@ public class WorldMapScreen extends Screen {
     }
 
     // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
 
     public void centerOnPlayer() {
-        camera.centerOnPlayer(player);
+        if (player != null) {
+            int chunkX = player.chunkPosition().x;
+            int chunkZ = player.chunkPosition().z;
+            offsetX = -(chunkX * 16 * scale) + width / 2.0;
+            offsetZ = -(chunkZ * 16 * scale) + height / 2.0;
+        }
     }
 
     public void resetZoom() {
-        camera.resetZoom(player);
+        scale = DEFAULT_SCALE;
+        centerOnPlayer();
     }
 
     // -------------------------------------------------------------------------
@@ -269,36 +267,57 @@ public class WorldMapScreen extends Screen {
 
         guiGraphics.enableScissor(0, 0, width, height);
 
-        mapRenderer.render(
-                guiGraphics,
-                width,
-                height,
-                offsetX,
-                offsetZ,
-                scale,
-                (mapGraphics, frame) -> renderMapOverlays(mapGraphics, mouseX, mouseY, frame));
+        renderMapTiles(guiGraphics);
+        if (claimTransparency && selectedRoute != null) {
+            ClaimRenderer.renderClaimsOverlayTransparent(guiGraphics, this.selectedClaim, this.offsetX, this.offsetZ, scale);
+        } else {
+            ClaimRenderer.renderClaimsOverlay(guiGraphics, this.selectedClaim, this.offsetX, this.offsetZ, scale);
+        }
+
+        if (contextMenu.isVisible()) {
+            String entryTag = contextMenu.getHoveredEntryTag();
+            if (entryTag != null) {
+                if (entryTag.contains("bufferzone"))
+                    ClaimRenderer.renderBufferZone(guiGraphics, offsetX, offsetZ, scale);
+                if (entryTag.contains("area"))
+                    ClaimRenderer.renderAreaPreview(guiGraphics, getClaimArea(selectedChunk), offsetX, offsetZ, scale);
+                if (entryTag.contains("chunk"))
+                    ClaimRenderer.renderAreaPreview(guiGraphics, getClaimableChunks(selectedChunk, 16), offsetX, offsetZ, scale);
+            }
+        }
+
+        if (player != null) renderPlayerPosition(guiGraphics);
+
+        if (selectedChunk != null && (selectedClaim == null || contextMenu.isVisible())) {
+            renderChunkOutline(guiGraphics, selectedChunk.x, selectedChunk.z, CHUNK_SELECTION_COLOR);
+        }
+
+        if (hoveredChunk != null) renderChunkHighlight(guiGraphics, hoveredChunk.x, hoveredChunk.z);
+
+        if (selectedRoute != null) {
+            RouteRenderer.renderRoute(guiGraphics, selectedRoute, offsetX, offsetZ, scale,
+                    draggingWaypoint, -1);
+            if (isDraggingWaypoint && draggingWaypoint != null) {
+                RouteRenderer.renderDragGhost(guiGraphics, draggingWaypoint, (int) mouseX, (int) mouseY);
+            }
+        }
 
         guiGraphics.disableScissor();
 
         renderCoordinatesAndZoom(guiGraphics);
-        // Route buttons
+        renderFPS(guiGraphics);
+
+        // Buttons (+ and ⚙)
         renderRouteUI(guiGraphics, mouseX, mouseY, partialTicks);
-        settingsPanel.render(guiGraphics, font, width, height, mouseX, mouseY);
 
         super.render(guiGraphics, mouseX, mouseY, partialTicks);
 
-        PoseStack overlayPose = guiGraphics.pose();
-        overlayPose.pushPose();
-        try {
-            overlayPose.translate(0.0F, 0.0F, 400.0F);
-            if (selectedClaim != null && claimInfoMenu.isVisible()) {
-                Point p = getClaimInfoMenuPosition(selectedClaim, claimInfoMenu.width, claimInfoMenu.height);
-                claimInfoMenu.setPosition(p.x, p.y);
-                claimInfoMenu.render(guiGraphics);
-            }
-            contextMenu.render(guiGraphics, this, mouseX, mouseY);
-        } finally {
-            overlayPose.popPose();
+        contextMenu.render(guiGraphics, this);
+
+        if (selectedClaim != null && claimInfoMenu.isVisible()) {
+            Point p = getClaimInfoMenuPosition(selectedClaim, claimInfoMenu.width, claimInfoMenu.height);
+            claimInfoMenu.setPosition(p.x, p.y);
+            claimInfoMenu.render(guiGraphics);
         }
 
         renderMapNotice(guiGraphics);
@@ -308,36 +327,13 @@ public class WorldMapScreen extends Screen {
         if (waypointEditPopup.isVisible()) waypointEditPopup.render(guiGraphics, mouseX, mouseY);
     }
 
-    private void renderMapOverlays(
-            GuiGraphics guiGraphics, int mouseX, int mouseY, MapFramebufferPass.Frame frame) {
-        PoseStack pose = guiGraphics.pose();
-        pose.pushPose();
-        double inverseSecondaryScale = 1.0 / frame.secondaryScale();
-        pose.translate(frame.secondaryOffsetX(), frame.secondaryOffsetZ(), 0.0);
-        pose.scale((float) inverseSecondaryScale, (float) inverseSecondaryScale, 1.0F);
-        try {
-            if (RecruitsClientConfig.WorldMapClaimFill.get()) {
-                ClaimRenderer.renderClaimsOverlay(
-                        guiGraphics, this.selectedClaim, this.offsetX, this.offsetZ, scale);
-            } else {
-                ClaimRenderer.renderClaimsOverlayTransparent(
-                        guiGraphics, this.selectedClaim, this.offsetX, this.offsetZ, scale);
-            }
+    private void renderRouteDropdown(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTicks) {
+        if (routeDropDown == null) return;
 
-            if (contextMenu.isVisible()) {
-                if (contextMenu.hasHoveredEntryTag(WorldMapContextMenu.TAG_BUFFER_ZONE))
-                    ClaimRenderer.renderBufferZone(guiGraphics, offsetX, offsetZ, scale);
-                if (contextMenu.hasHoveredEntryTag(WorldMapContextMenu.TAG_CLAIM_AREA))
-                    ClaimRenderer.renderClaimPreview(
-                            guiGraphics, getClaimAreaPreview(selectedChunk), offsetX, offsetZ, scale);
-                if (contextMenu.hasHoveredEntryTag(WorldMapContextMenu.TAG_CLAIM_SCAN))
-                    ClaimRenderer.renderClaimPreview(
-                            guiGraphics,
-                            getClaimScanPreview(selectedChunk, CLAIM_SCAN_PREVIEW_RADIUS),
-                            offsetX,
-                            offsetZ,
-                            scale);
-            }
+        int ddX = ROUTE_UI_X;
+        int ddY = ROUTE_UI_Y;
+        int ddW = ROUTE_DROPDOWN_W;
+        int ddH = ROUTE_BTN_SIZE;
 
         WorldMapRenderPrimitives.panel(guiGraphics, ddX, ddY, ddW, ddH);
 
@@ -366,6 +362,50 @@ public class WorldMapScreen extends Screen {
         guiGraphics.fill(0, 0, width, height, DARK_GRAY_BG);
     }
 
+    private void renderMapTiles(GuiGraphics guiGraphics) {
+        double tileSize = ChunkTile.TILE_PIXEL_SIZE;
+        double scaledTileSize = tileSize * scale;
+
+        double leftEdge = -offsetX;
+        double rightEdge = width - offsetX;
+        double topEdge = -offsetZ;
+        double bottomEdge = height - offsetZ;
+
+        int startTileX = (int) Math.floor(leftEdge / scaledTileSize - 0.5);
+        int endTileX = (int) Math.ceil(rightEdge / scaledTileSize + 0.5);
+        int startTileZ = (int) Math.floor(topEdge / scaledTileSize - 0.5);
+        int endTileZ = (int) Math.ceil(bottomEdge / scaledTileSize + 0.5);
+
+        for (int tileZ = startTileZ; tileZ <= endTileZ; tileZ++) {
+            for (int tileX = startTileX; tileX <= endTileX; tileX++) {
+                ChunkTile tile = tileManager.getOrCreateTile(tileX, tileZ);
+                ResourceLocation textureId = tile.getTextureId();
+                if (textureId == null) continue;
+
+                double tileWorldX = tileX * scaledTileSize + offsetX;
+                double tileWorldZ = tileZ * scaledTileSize + offsetZ;
+                double drawX = tileWorldX - 0.5;
+                double drawZ = tileWorldZ - 0.5;
+                double drawSize = scaledTileSize + 1.0;
+
+                int x = (int) Math.floor(drawX);
+                int z = (int) Math.floor(drawZ);
+                int size = (int) Math.ceil(drawSize);
+
+                if (Math.abs(scale - 1.0) < 0.01) {
+                    x = (int) Math.round(tileWorldX);
+                    z = (int) Math.round(tileWorldZ);
+                    size = (int) Math.round(scaledTileSize);
+                }
+
+                RenderSystem.setShaderTexture(0, textureId);
+                RenderSystem.enableBlend();
+                RenderSystem.defaultBlendFunc();
+                guiGraphics.blit(textureId, x, z, 0, 0, size, size, size, size);
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Waypoint creation
     // -------------------------------------------------------------------------
@@ -388,9 +428,7 @@ public class WorldMapScreen extends Screen {
             return;
         }
 
-        String name = Component.translatable(
-                "gui.recruits.map.waypoint.default_name",
-                selectedRoute.getWaypoints().size() + 1).getString();
+        String name = "WP " + (selectedRoute.getWaypoints().size() + 1);
         selectedRoute.addWaypoint(new RecruitsRoute.Waypoint(name, pos, null));
         ClientManager.saveRoute(selectedRoute);
         showMapNotice(TEXT_WAYPOINT_ADDED, 0xFF9FDB6B);
@@ -399,13 +437,12 @@ public class WorldMapScreen extends Screen {
     public boolean canPlaceWaypointAt(int worldX, int worldZ) {
         if (minecraft.level == null) return false;
         ChunkPos chunk = new ChunkPos(worldX >> 4, worldZ >> 4);
-        if (!mapCache.isChunkExplored(chunk)) return false;
+        if (!tileManager.isChunkExplored(chunk)) return false;
         return minecraft.level.getChunkSource().getChunk(chunk.x, chunk.z, false) != null;
     }
 
     public void openWaypointEditPopup(double mouseX, double mouseY) {
-        RecruitsRoute.Waypoint wp = RouteRenderer.getWaypointAt(
-                selectedRoute, mouseX, mouseY, offsetX, offsetZ, scale);
+        RecruitsRoute.Waypoint wp = RouteRenderer.getWaypointAt(selectedRoute, mouseX, mouseY, offsetX, offsetZ, scale);
         if (wp == null) return;
         waypointEditPopup.open(wp);
         contextMenu.close();
@@ -413,8 +450,7 @@ public class WorldMapScreen extends Screen {
 
     public void removeWaypointAt(double mouseX, double mouseY) {
         if (selectedRoute == null) return;
-        RecruitsRoute.Waypoint wp = RouteRenderer.getWaypointAt(
-                selectedRoute, mouseX, mouseY, offsetX, offsetZ, scale);
+        RecruitsRoute.Waypoint wp = RouteRenderer.getWaypointAt(selectedRoute, mouseX, mouseY, offsetX, offsetZ, scale);
         if (wp != null) {
             selectedRoute.removeWaypoint(wp);
             ClientManager.saveRoute(selectedRoute);
@@ -501,89 +537,34 @@ public class WorldMapScreen extends Screen {
     }
 
     private void renderChunkHighlight(GuiGraphics guiGraphics, int chunkX, int chunkZ) {
-        double pixelX = offsetX + chunkX * 16.0 * scale;
-        double pixelZ = offsetZ + chunkZ * 16.0 * scale;
-        double size = 16.0 * scale;
-        MapRenderUtil.fill(guiGraphics, pixelX, pixelZ, pixelX + size, pixelZ + size, CHUNK_HIGHLIGHT_COLOR);
+        int pixelX = (int) (offsetX + chunkX * 16 * scale);
+        int pixelZ = (int) (offsetZ + chunkZ * 16 * scale);
+        int size = (int) (16 * scale);
+        guiGraphics.fill(pixelX, pixelZ, pixelX + size, pixelZ + size, CHUNK_HIGHLIGHT_COLOR);
     }
 
     private void renderChunkOutline(GuiGraphics guiGraphics, int chunkX, int chunkZ, int color) {
-        double pixelX = offsetX + chunkX * 16.0 * scale;
-        double pixelZ = offsetZ + chunkZ * 16.0 * scale;
-        double size = 16.0 * scale;
-        double thickness = Math.max(1.0, Math.min(2.0, scale));
-        MapRenderUtil.fill(guiGraphics, pixelX, pixelZ, pixelX + size, pixelZ + thickness, color);
-        MapRenderUtil.fill(guiGraphics, pixelX, pixelZ + size - thickness, pixelX + size, pixelZ + size, color);
-        MapRenderUtil.fill(guiGraphics, pixelX, pixelZ, pixelX + thickness, pixelZ + size, color);
-        MapRenderUtil.fill(guiGraphics, pixelX + size - thickness, pixelZ, pixelX + size, pixelZ + size, color);
+        int pixelX = (int) (offsetX + chunkX * 16 * scale);
+        int pixelZ = (int) (offsetZ + chunkZ * 16 * scale);
+        int size = (int) (16 * scale);
+        guiGraphics.hLine(pixelX, pixelX + size, pixelZ, color);
+        guiGraphics.hLine(pixelX, pixelX + size, pixelZ + size, color);
+        guiGraphics.vLine(pixelX, pixelZ, pixelZ + size, color);
+        guiGraphics.vLine(pixelX + size, pixelZ, pixelZ + size, color);
     }
 
     private void renderCoordinatesAndZoom(GuiGraphics guiGraphics) {
-        if (!RecruitsClientConfig.WorldMapShowCoordinates.get()) return;
-
-        int scaleTenths = (int) Math.round(scale * 10.0);
-        if (hoverBlockX != cachedReadoutBlockX
-                || hoverBlockZ != cachedReadoutBlockZ
-                || scaleTenths != cachedReadoutScaleTenths
-                || width != cachedReadoutScreenWidth
-                || height != cachedReadoutScreenHeight) {
-            rebuildCoordinatesReadout(scaleTenths);
-        }
-
-        guiGraphics.fill(
-                cachedReadoutBgX,
-                cachedReadoutBgY,
-                cachedReadoutBgX + cachedReadoutBgWidth,
-                cachedReadoutBgY + 20,
-                0x80000000);
-        guiGraphics.renderOutline(cachedReadoutBgX, cachedReadoutBgY, cachedReadoutBgWidth, 20, 0x40FFFFFF);
-        guiGraphics.drawString(font, cachedReadoutText, cachedReadoutBgX + 8, height - 25, 0xFFFFFF);
-    }
-
-    private void rebuildCoordinatesReadout(int scaleTenths) {
         int hoverY = resolveSurfaceY(hoverBlockX, hoverBlockZ);
-        String zoomValue = String.format(java.util.Locale.ROOT, "%.1fx", scaleTenths / 10.0);
-        String zoom = Component.translatable("gui.recruits.map.readout.zoom", zoomValue).getString();
-        cachedReadoutText = "X: " + hoverBlockX + ", Y: " + hoverY + ", Z: " + hoverBlockZ + " | " + zoom;
-        int textWidth = font.width(cachedReadoutText);
-        cachedReadoutBgWidth = textWidth + 16;
-        cachedReadoutBgX = width / 2 - cachedReadoutBgWidth / 2;
-        cachedReadoutBgY = height - 30;
-        cachedReadoutBlockX = hoverBlockX;
-        cachedReadoutBlockZ = hoverBlockZ;
-        cachedReadoutScaleTenths = scaleTenths;
-        cachedReadoutScreenWidth = width;
-        cachedReadoutScreenHeight = height;
-    }
-
-    private void refreshSelectedClaim() {
-        if (selectedClaim == null) return;
-
-        RecruitsClaim latestClaim = findClientClaim(selectedClaim.getUUID());
-        if (latestClaim == null || latestClaim.isRemoved) {
-            selectedClaim = null;
-            claimInfoMenu.close();
-            return;
-        }
-
-        if (latestClaim != selectedClaim) {
-            selectedClaim = latestClaim;
-            if (claimInfoMenu.isVisible()) {
-                claimInfoMenu.setClaim(latestClaim);
-            }
-        }
-    }
-
-    @Nullable
-    private RecruitsClaim findClientClaim(UUID claimId) {
-        if (claimId == null || ClientManager.recruitsClaims == null) return null;
-
-        for (RecruitsClaim claim : ClientManager.recruitsClaims) {
-            if (claim != null && claimId.equals(claim.getUUID())) {
-                return claim;
-            }
-        }
-        return null;
+        String coords = String.format("X: %d, Y: %d, Z: %d", hoverBlockX, hoverY, hoverBlockZ);
+        String zoom = String.format("Zoom: %.1fx", scale);
+        String combined = coords + " | " + zoom;
+        int textWidth = font.width(combined);
+        int bgX = width / 2 - textWidth / 2 - 8;
+        int bgY = height - 30;
+        int bgWidth = textWidth + 16;
+        guiGraphics.fill(bgX, bgY, bgX + bgWidth, bgY + 20, 0x80000000);
+        guiGraphics.renderOutline(bgX, bgY, bgWidth, 20, 0x40FFFFFF);
+        guiGraphics.drawCenteredString(font, combined, width / 2, height - 25, 0xFFFFFF);
     }
 
     // -------------------------------------------------------------------------
@@ -597,35 +578,38 @@ public class WorldMapScreen extends Screen {
         if (routeEditPopup.isVisible()) return routeEditPopup.mouseClicked(mouseX, mouseY);
         if (waypointEditPopup.isVisible()) return waypointEditPopup.mouseClicked(mouseX, mouseY);
 
-        if (settingsPanel.mouseClicked(mouseX, mouseY, button, width, height)) {
-            hoveredChunk = null;
-            selectedChunk = null;
-            contextMenu.close();
-            claimInfoMenu.close();
-            return true;
-        }
-
         // Route UI buttons
-        if (routeControls.isAddButtonHovered(mouseX, mouseY)) {
+        int addBtnX = getAddBtnX();
+        int editBtnX = getEditBtnX();
+        if (mouseX >= addBtnX && mouseX <= addBtnX + ROUTE_BTN_SIZE
+                && mouseY >= ROUTE_UI_Y && mouseY <= ROUTE_UI_Y + ROUTE_BTN_SIZE) {
             hoveredChunk = null;
             selectedChunk = null;
             routeNamePopup.open();
             contextMenu.close();
             return true;
         }
-
-        if (selectedRoute != null && routeControls.isEditButtonHovered(mouseX, mouseY)) {
+        if (selectedRoute != null && mouseX >= editBtnX && mouseX <= editBtnX + ROUTE_BTN_SIZE && mouseY >= ROUTE_UI_Y && mouseY <= ROUTE_UI_Y + ROUTE_BTN_SIZE) {
             hoveredChunk = null;
             selectedChunk = null;
             routeEditPopup.open(selectedRoute);
             return true;
         }
 
+        if (selectedRoute != null) {
+            int transBtnX = getTransBtnX();
+            if (mouseX >= transBtnX && mouseX <= transBtnX + ROUTE_BTN_SIZE
+                    && mouseY >= ROUTE_UI_Y && mouseY <= ROUTE_UI_Y + ROUTE_BTN_SIZE) {
+                claimTransparency = !claimTransparency;
+                return true;
+            }
+        }
+
         // Route dropdown
-        if (routeControls.isDropdownHovered(mouseX, mouseY)) {
+        if (routeDropDown != null && routeDropDown.isMouseOver(mouseX, mouseY)) {
             hoveredChunk = null;
             selectedChunk = null;
-            routeControls.clickDropdown(mouseX, mouseY);
+            routeDropDown.onMouseClick(mouseX, mouseY);
 
             return true;
         }
@@ -646,10 +630,9 @@ public class WorldMapScreen extends Screen {
 
         RecruitsClaim clickedClaim = ClaimRenderer.getClaimAtPosition(mouseX, mouseY, offsetX, offsetZ, scale);
         if (clickedClaim != null) {
-            boolean canInspect =
-                    !ClientManager.configFogOfWarEnabled
-                            || isPlayerAdminAndCreative()
-                            || ClaimRenderer.isClaimExplored(clickedClaim);
+            boolean canInspect = !ClientManager.configFogOfWarEnabled
+                    || isPlayerAdminAndCreative()
+                    || ClaimRenderer.isClaimExplored(clickedClaim);
             if (canInspect) {
                 selectedClaim = clickedClaim;
                 claimInfoMenu.openForClaim(selectedClaim, (int) mouseX, (int) mouseY);
@@ -667,19 +650,16 @@ public class WorldMapScreen extends Screen {
             double worldZ = (mouseY - offsetZ) / scale;
             clickedBlockX = (int) Math.floor(worldX);
             clickedBlockZ = (int) Math.floor(worldZ);
-            snapshotWorldX = clickedBlockX;
-            snapshotWorldZ = clickedBlockZ;
             this.contextMenu = new WorldMapContextMenu(this);
             contextMenu.openAt((int) mouseX, (int) mouseY);
+            snapshotWorldX = clickedBlockX;
+            snapshotWorldZ = clickedBlockZ;
             claimInfoMenu.close();
         }
 
         if (button == 0) {
             // Start waypoint drag if clicking on a waypoint
-            if (!routeNamePopup.isVisible()
-                    && !routeEditPopup.isVisible()
-                    && !waypointEditPopup.isVisible()
-                    && selectedRoute != null) {
+            if (!routeNamePopup.isVisible() && !routeEditPopup.isVisible() && !waypointEditPopup.isVisible() && selectedRoute != null) {
                 RecruitsRoute.Waypoint wpHit = RouteRenderer.getWaypointAt(
                         selectedRoute, mouseX, mouseY, offsetX, offsetZ, scale);
                 if (wpHit != null) {
@@ -694,7 +674,6 @@ public class WorldMapScreen extends Screen {
             lastMouseX = mouseX;
             lastMouseY = mouseY;
             isDragging = true;
-            camera.beginPanDrag(mouseX, mouseY);
         }
 
         return super.mouseClicked(mouseX, mouseY, button);
@@ -719,29 +698,26 @@ public class WorldMapScreen extends Screen {
                 return true;
             }
             isDragging = false;
-            camera.finishPanDrag(mouseX, mouseY);
         }
         if (claimInfoMenu.isVisible()) claimInfoMenu.mouseReleased(mouseX, mouseY, button);
         return true;
     }
 
     @Override
-    public boolean mouseDragged(
-            double mouseX, double mouseY, int button, double dragX, double dragY) {
-        if (routeNamePopup.isVisible() || routeEditPopup.isVisible() || waypointEditPopup.isVisible())
-            return true;
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (routeNamePopup.isVisible() || routeEditPopup.isVisible() || waypointEditPopup.isVisible()) return true;
         if (isDraggingWaypoint && draggingWaypoint != null) {
             hoveredChunk = null;
             selectedChunk = null;
             // Update waypoint world position to follow mouse
             int newWorldX = (int) Math.floor((mouseX - offsetX) / scale);
             int newWorldZ = (int) Math.floor((mouseY - offsetZ) / scale);
-            BlockPos newPosition = new BlockPos(newWorldX, resolveSurfaceY(newWorldX, newWorldZ), newWorldZ);
-            draggingWaypoint.setPosition(newPosition);
+            draggingWaypoint.setPosition(new net.minecraft.core.BlockPos(newWorldX, resolveSurfaceY(newWorldX, newWorldZ), newWorldZ));
             return true;
         }
         if (isDragging) {
-            camera.dragByScreenDelta(mouseX, mouseY, mouseX - lastMouseX, mouseY - lastMouseY);
+            offsetX += mouseX - lastMouseX;
+            offsetZ += mouseY - lastMouseY;
             lastMouseX = mouseX;
             lastMouseY = mouseY;
             if (claimInfoMenu.isVisible()) claimInfoMenu.close();
@@ -768,9 +744,13 @@ public class WorldMapScreen extends Screen {
         return true;
     }
 
+    public double mouseX, mouseY;
+
     @Override
     public void mouseMoved(double mouseX, double mouseY) {
-        routeControls.mouseMoved(mouseX, mouseY);
+        this.mouseX = mouseX;
+        this.mouseY = mouseY;
+        if (routeDropDown != null) routeDropDown.onMouseMove(mouseX, mouseY);
 
         // Suppress chunk hover when any popup is open or the dropdown is being hovered
         boolean uiHovered = routeNamePopup.isVisible()
@@ -795,10 +775,6 @@ public class WorldMapScreen extends Screen {
         if (routeNamePopup.isVisible()) return routeNamePopup.keyPressed(keyCode);
 
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            if (settingsPanel.isOpen()) {
-                settingsPanel.close();
-                return true;
-            }
             if (claimInfoMenu.isVisible()) {
                 claimInfoMenu.close();
                 return true;
@@ -830,8 +806,8 @@ public class WorldMapScreen extends Screen {
     @Override
     public boolean charTyped(char chr, int modifiers) {
         if (waypointEditPopup.isVisible()) return waypointEditPopup.charTyped(chr);
-        if (routeEditPopup.isVisible()) return routeEditPopup.charTyped(chr, modifiers);
-        if (routeNamePopup.isVisible()) return routeNamePopup.charTyped(chr, modifiers);
+        if (routeEditPopup.isVisible())    return routeEditPopup.charTyped(chr, modifiers);
+        if (routeNamePopup.isVisible())    return routeNamePopup.charTyped(chr, modifiers);
         return super.charTyped(chr, modifiers);
     }
 
