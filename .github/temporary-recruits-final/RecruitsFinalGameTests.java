@@ -43,25 +43,21 @@ public final class RecruitsFinalGameTests {
 
     @GameTest(templateNamespace = "minecraft", template = "empty", timeoutTicks = 100)
     public static void registeredEntityTypesInstantiate(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
         List<ResourceLocation> ids = recruitEntityIds();
         helper.assertTrue(ids.size() >= 8, "Expected at least 8 Recruits entity types, found " + ids.size());
         List<String> failures = new ArrayList<>();
         int living = 0;
         for (ResourceLocation id : ids) {
             try {
-                Entity entity = BuiltInRegistries.ENTITY_TYPE.get(id).create(level);
-                if (entity == null) {
-                    failures.add(id + " returned null");
-                } else if (entity instanceof LivingEntity) {
-                    living++;
-                }
+                Entity entity = BuiltInRegistries.ENTITY_TYPE.get(id).create(helper.getLevel());
+                if (entity == null) failures.add(id + " returned null");
+                else if (entity instanceof LivingEntity) living++;
             } catch (Throwable failure) {
                 failures.add(id + " -> " + failure.getClass().getSimpleName() + ": " + failure.getMessage());
             }
         }
         helper.assertTrue(failures.isEmpty(), "Entity instantiation failures: " + failures);
-        helper.assertTrue(living >= 5, "Expected at least 5 living Recruits entities, found " + living);
+        helper.assertTrue(living >= 5, "Expected at least 5 living entities, found " + living);
         helper.succeed();
     }
 
@@ -80,55 +76,48 @@ public final class RecruitsFinalGameTests {
             mob.setPersistenceRequired();
         }
 
-        OwnerAccess owner = OwnerAccess.resolve(recruit.getClass());
-        helper.assertTrue(owner != null, "Could not resolve public owner UUID accessors on " + recruit.getClass().getName());
+        OwnerAccess owner = requireOwnerAccess(recruit);
         owner.set(recruit, OWNER_UUID);
-        helper.assertTrue(OWNER_UUID.equals(owner.get(recruit)), "Owner UUID setter/getter did not agree before save");
+        setOwned(recruit, true);
+        helper.assertTrue(OWNER_UUID.equals(owner.get(recruit)), "Owner UUID was not set");
+        helper.assertTrue(isOwned(recruit), "Owned flag was not set");
 
-        Container inventory = resolveInventory(recruit);
-        helper.assertTrue(inventory != null && inventory.getContainerSize() > 0,
-                "Core recruit must expose a non-empty Container inventory");
+        Container inventory = requireInventory(recruit);
         inventory.setItem(0, new ItemStack(Items.EMERALD, 23));
         inventory.setChanged();
 
         CompoundTag tag = new CompoundTag();
-        helper.assertTrue(recruit.save(tag), "Core recruit refused to save to NBT");
-        Entity loaded = EntityType.loadEntityRecursive(tag, level, entity -> entity).orElse(null);
-        helper.assertTrue(loaded instanceof LivingEntity, "Core recruit could not be loaded from saved NBT");
+        helper.assertTrue(recruit.save(tag), "Core recruit refused NBT save");
+        Entity loaded = EntityType.loadEntityRecursive(tag, level, entity -> entity);
+        helper.assertTrue(loaded instanceof LivingEntity, "Core recruit failed NBT reload");
         LivingEntity restored = (LivingEntity) loaded;
 
-        helper.assertTrue(restored.getUUID().equals(ENTITY_UUID), "Entity UUID did not survive NBT round trip");
+        helper.assertTrue(ENTITY_UUID.equals(restored.getUUID()), "Entity UUID did not persist");
         helper.assertTrue(restored.hasCustomName()
                         && "recruits-final-gametest".equals(restored.getCustomName().getString()),
-                "Custom name did not survive NBT round trip");
-        helper.assertTrue(restored.getMainHandItem().is(Items.IRON_SWORD), "Main-hand item did not persist");
-        helper.assertTrue(restored.getOffhandItem().is(Items.SHIELD), "Off-hand item did not persist");
+                "Custom name did not persist");
+        helper.assertTrue(restored.getMainHandItem().is(Items.IRON_SWORD), "Main hand did not persist");
+        helper.assertTrue(restored.getOffhandItem().is(Items.SHIELD), "Off hand did not persist");
         helper.assertTrue(restored.getItemBySlot(EquipmentSlot.HEAD).is(Items.IRON_HELMET),
                 "Helmet did not persist");
-
-        OwnerAccess restoredOwner = OwnerAccess.resolve(restored.getClass());
-        helper.assertTrue(restoredOwner != null && OWNER_UUID.equals(restoredOwner.get(restored)),
-                "Owner UUID did not survive NBT round trip");
-        Container restoredInventory = resolveInventory(restored);
-        helper.assertTrue(restoredInventory != null && restoredInventory.getContainerSize() > 0,
-                "Restored recruit inventory is unavailable");
+        helper.assertTrue(OWNER_UUID.equals(requireOwnerAccess(restored).get(restored)),
+                "Owner UUID did not persist");
+        helper.assertTrue(isOwned(restored), "Owned flag did not persist");
+        Container restoredInventory = requireInventory(restored);
         helper.assertTrue(restoredInventory.getItem(0).is(Items.EMERALD)
                         && restoredInventory.getItem(0).getCount() == 23,
-                "Recruit inventory slot 0 did not preserve 23 emeralds");
+                "Inventory did not preserve 23 emeralds");
         helper.succeed();
     }
 
     @GameTest(templateNamespace = "minecraft", template = "empty", timeoutTicks = 160)
     public static void allLivingRecruitEntitiesSave(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
         List<String> failures = new ArrayList<>();
         int checked = 0;
         for (ResourceLocation id : recruitEntityIds()) {
             try {
-                Entity entity = BuiltInRegistries.ENTITY_TYPE.get(id).create(level);
-                if (!(entity instanceof LivingEntity living)) {
-                    continue;
-                }
+                Entity entity = BuiltInRegistries.ENTITY_TYPE.get(id).create(helper.getLevel());
+                if (!(entity instanceof LivingEntity living)) continue;
                 checked++;
                 living.setCustomName(Component.literal("save-check-" + id.getPath()));
                 if (living instanceof Mob mob) {
@@ -140,15 +129,13 @@ public final class RecruitsFinalGameTests {
                     failures.add(id + " refused save");
                     continue;
                 }
-                Entity loaded = EntityType.loadEntityRecursive(tag, level, value -> value).orElse(null);
-                if (loaded == null || loaded.getType() != living.getType()) {
-                    failures.add(id + " failed reload");
-                }
+                Entity loaded = EntityType.loadEntityRecursive(tag, helper.getLevel(), value -> value);
+                if (loaded == null || loaded.getType() != living.getType()) failures.add(id + " failed reload");
             } catch (Throwable failure) {
                 failures.add(id + " -> " + failure.getClass().getSimpleName() + ": " + failure.getMessage());
             }
         }
-        helper.assertTrue(checked >= 5, "Expected at least 5 living entities to check, found " + checked);
+        helper.assertTrue(checked >= 5, "Expected at least 5 living entities, found " + checked);
         helper.assertTrue(failures.isEmpty(), "Living entity save/reload failures: " + failures);
         helper.succeed();
     }
@@ -158,110 +145,130 @@ public final class RecruitsFinalGameTests {
         List<String> leaks = new ArrayList<>();
         for (ResourceLocation id : recruitEntityIds()) {
             Entity entity = BuiltInRegistries.ENTITY_TYPE.get(id).create(helper.getLevel());
-            if (entity == null) {
-                continue;
-            }
+            if (entity == null) continue;
             Class<?> type = entity.getClass();
             while (type != null && type != Object.class) {
                 for (Method method : type.getDeclaredMethods()) {
                     checkType(method.getReturnType(), type, method.getName(), leaks);
-                    for (Class<?> parameter : method.getParameterTypes()) {
+                    for (Class<?> parameter : method.getParameterTypes())
                         checkType(parameter, type, method.getName(), leaks);
-                    }
                 }
                 type = type.getSuperclass();
             }
         }
-        helper.assertTrue(leaks.isEmpty(), "Client-only types leaked into common entity APIs: " + leaks);
+        helper.assertTrue(leaks.isEmpty(), "Client-only common API leakage: " + leaks);
         helper.succeed();
-    }
-
-    private static void checkType(Class<?> referenced, Class<?> owner, String method, List<String> leaks) {
-        String name = referenced.getName();
-        if (name.startsWith("net.minecraft.client.") || name.startsWith("com.mojang.blaze3d.")) {
-            leaks.add(owner.getName() + "#" + method + " -> " + name);
-        }
     }
 
     private static List<ResourceLocation> recruitEntityIds() {
         return BuiltInRegistries.ENTITY_TYPE.keySet().stream()
                 .filter(id -> "recruits".equals(id.getNamespace()))
-                .sorted(Comparator.comparing(ResourceLocation::toString))
-                .toList();
+                .sorted(Comparator.comparing(ResourceLocation::toString)).toList();
     }
 
     private static LivingEntity createCoreRecruit(ServerLevel level) {
-        List<ResourceLocation> ids = recruitEntityIds();
-        ids = ids.stream().sorted(Comparator.comparing(id -> !"recruit".equals(id.getPath()))).toList();
-        for (ResourceLocation id : ids) {
-            Entity entity = BuiltInRegistries.ENTITY_TYPE.get(id).create(level);
-            if (entity instanceof LivingEntity living && hasSuperclass(living.getClass(), "AbstractRecruitEntity")) {
-                return living;
-            }
-        }
-        throw new IllegalStateException("No living AbstractRecruitEntity implementation is registered");
+        return recruitEntityIds().stream()
+                .sorted(Comparator.comparing(id -> !"recruit".equals(id.getPath())))
+                .map(BuiltInRegistries.ENTITY_TYPE::get)
+                .map(type -> type.create(level))
+                .filter(entity -> entity instanceof LivingEntity
+                        && hasSuperclass(entity.getClass(), "AbstractRecruitEntity"))
+                .map(entity -> (LivingEntity) entity)
+                .findFirst().orElseThrow(() -> new IllegalStateException("No AbstractRecruitEntity is registered"));
+    }
+
+    private static void checkType(Class<?> referenced, Class<?> owner, String method, List<String> leaks) {
+        String name = referenced.getName();
+        if (name.startsWith("net.minecraft.client.") || name.startsWith("com.mojang.blaze3d."))
+            leaks.add(owner.getName() + "#" + method + " -> " + name);
     }
 
     private static boolean hasSuperclass(Class<?> type, String simpleName) {
-        Class<?> cursor = type;
-        while (cursor != null) {
-            if (simpleName.equals(cursor.getSimpleName())) {
-                return true;
-            }
-            cursor = cursor.getSuperclass();
-        }
+        for (Class<?> cursor = type; cursor != null; cursor = cursor.getSuperclass())
+            if (simpleName.equals(cursor.getSimpleName())) return true;
         return false;
     }
 
-    private static Container resolveInventory(Object entity) {
+    private static Container requireInventory(Object entity) {
         for (Method method : entity.getClass().getMethods()) {
-            if (method.getParameterCount() == 0
-                    && "getInventory".equals(method.getName())
+            if (method.getParameterCount() == 0 && "getInventory".equals(method.getName())
                     && Container.class.isAssignableFrom(method.getReturnType())) {
                 try {
-                    return (Container) method.invoke(entity);
+                    Container inventory = (Container) method.invoke(entity);
+                    if (inventory != null && inventory.getContainerSize() > 0) return inventory;
                 } catch (ReflectiveOperationException failure) {
                     throw new IllegalStateException("Failed to access recruit inventory", failure);
                 }
             }
         }
-        return null;
+        throw new IllegalStateException("No non-empty public Container inventory on " + entity.getClass().getName());
     }
 
-    private record OwnerAccess(Method setter, Method getter, boolean optionalGetter) {
+    private static void setOwned(Object entity, boolean value) {
+        invokeBoolean(entity, "setIsOwned", value);
+    }
+
+    private static boolean isOwned(Object entity) {
+        Object value = invokeNoArgs(entity, "getIsOwned");
+        return value instanceof Boolean bool && bool;
+    }
+
+    private static Object invokeNoArgs(Object target, String name) {
+        try {
+            return target.getClass().getMethod(name).invoke(target);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Failed to call " + name, failure);
+        }
+    }
+
+    private static void invokeBoolean(Object target, String name, boolean value) {
+        try {
+            target.getClass().getMethod(name, boolean.class).invoke(target, value);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Failed to call " + name, failure);
+        }
+    }
+
+    private static OwnerAccess requireOwnerAccess(Object entity) {
+        OwnerAccess access = OwnerAccess.resolve(entity.getClass());
+        if (access == null) throw new IllegalStateException("Owner UUID accessors unavailable on " + entity.getClass().getName());
+        return access;
+    }
+
+    private record OwnerAccess(Method setter, Method getter, boolean optionalSetter, boolean optionalGetter) {
         static OwnerAccess resolve(Class<?> type) {
             Method setter = null;
             Method getter = null;
-            boolean optional = false;
+            boolean setterOptional = false;
+            boolean getterOptional = false;
             for (Method method : type.getMethods()) {
                 String lower = method.getName().toLowerCase();
-                if (!lower.contains("owner")) {
-                    continue;
-                }
-                if (method.getParameterCount() == 1 && method.getParameterTypes()[0] == UUID.class
-                        && method.getReturnType() == void.class) {
-                    if (setter == null || "setOwnerUUID".equals(method.getName())) {
-                        setter = method;
+                if (!lower.contains("owner")) continue;
+                if (method.getParameterCount() == 1 && method.getReturnType() == void.class) {
+                    Class<?> parameter = method.getParameterTypes()[0];
+                    if (parameter == UUID.class || Optional.class.isAssignableFrom(parameter)) {
+                        if (setter == null || "setOwnerUUID".equals(method.getName())) {
+                            setter = method;
+                            setterOptional = Optional.class.isAssignableFrom(parameter);
+                        }
                     }
-                } else if (method.getParameterCount() == 0 && method.getReturnType() == UUID.class) {
-                    if (getter == null || "getOwnerUUID".equals(method.getName())) {
-                        getter = method;
-                        optional = false;
-                    }
-                } else if (method.getParameterCount() == 0
-                        && Optional.class.isAssignableFrom(method.getReturnType())) {
-                    if (getter == null) {
-                        getter = method;
-                        optional = true;
+                } else if (method.getParameterCount() == 0) {
+                    if (method.getReturnType() == UUID.class
+                            || Optional.class.isAssignableFrom(method.getReturnType())) {
+                        if (getter == null || "getOwnerUUID".equals(method.getName())) {
+                            getter = method;
+                            getterOptional = Optional.class.isAssignableFrom(method.getReturnType());
+                        }
                     }
                 }
             }
-            return setter == null || getter == null ? null : new OwnerAccess(setter, getter, optional);
+            return setter == null || getter == null ? null
+                    : new OwnerAccess(setter, getter, setterOptional, getterOptional);
         }
 
         void set(Object target, UUID value) {
             try {
-                setter.invoke(target, value);
+                setter.invoke(target, optionalSetter ? Optional.ofNullable(value) : value);
             } catch (ReflectiveOperationException failure) {
                 throw new IllegalStateException("Failed to set owner UUID", failure);
             }
@@ -270,10 +277,7 @@ public final class RecruitsFinalGameTests {
         UUID get(Object target) {
             try {
                 Object value = getter.invoke(target);
-                if (optionalGetter) {
-                    return (UUID) ((Optional<?>) value).orElse(null);
-                }
-                return (UUID) value;
+                return optionalGetter ? (UUID) ((Optional<?>) value).orElse(null) : (UUID) value;
             } catch (ReflectiveOperationException failure) {
                 throw new IllegalStateException("Failed to read owner UUID", failure);
             }
