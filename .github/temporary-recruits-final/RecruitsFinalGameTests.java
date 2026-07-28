@@ -31,6 +31,7 @@ import java.util.UUID;
 public final class RecruitsFinalGameTests {
     private static final UUID ENTITY_UUID = UUID.fromString("10000000-0000-0000-0000-000000000001");
     private static final UUID OWNER_UUID = UUID.fromString("20000000-0000-0000-0000-000000000002");
+    private static final int CARGO_SLOT = 6;
 
     private RecruitsFinalGameTests() {
     }
@@ -83,7 +84,8 @@ public final class RecruitsFinalGameTests {
         helper.assertTrue(isOwned(recruit), "Owned flag was not set");
 
         Container inventory = requireInventory(recruit);
-        inventory.setItem(0, new ItemStack(Items.EMERALD, 23));
+        helper.assertTrue(inventory.getContainerSize() > CARGO_SLOT, "Recruit inventory lacks cargo slot 6");
+        inventory.setItem(CARGO_SLOT, new ItemStack(Items.EMERALD, 23));
         inventory.setChanged();
 
         CompoundTag tag = new CompoundTag();
@@ -104,9 +106,9 @@ public final class RecruitsFinalGameTests {
                 "Owner UUID did not persist");
         helper.assertTrue(isOwned(restored), "Owned flag did not persist");
         Container restoredInventory = requireInventory(restored);
-        helper.assertTrue(restoredInventory.getItem(0).is(Items.EMERALD)
-                        && restoredInventory.getItem(0).getCount() == 23,
-                "Inventory did not preserve 23 emeralds");
+        helper.assertTrue(restoredInventory.getItem(CARGO_SLOT).is(Items.EMERALD)
+                        && restoredInventory.getItem(CARGO_SLOT).getCount() == 23,
+                "Cargo slot 6 did not preserve 23 emeralds");
         helper.succeed();
     }
 
