@@ -45,6 +45,16 @@ public class RecruitsClientConfig {
                 .worldRestart()
                 .define("CommandScreenToggle", false);
 
+        RecruitsToasts = BUILDER.comment("""
+                        ----RecruitsToasts----
+                        \t(takes effect after restart)
+                        \t
+                        Should important events be shown on the HUD by toast notifications?""
+                        default: true""")
+
+                .worldRestart()
+                .define("RecruitsToasts", true);
+
         UpdateCheckerClientside = BUILDER.comment("""
                         ----UpdateCheckerClientside----
                         \t(takes effect after restart)
@@ -70,11 +80,41 @@ public class RecruitsClientConfig {
                         ----UpdateMapTiles----
                         \t(takes effect after restart)
                         \t
-                        Should the world map tiles be updated while the map is open?
+                        Should the world map tiles be updated while playing?
                         Disable this if you experience performance issues with the map.""
                         default: true""")
                 .worldRestart()
                 .define("UpdateMapTiles", true);
+
+        WorldMapUpdateAroundPlayer = BUILDER.comment("""
+                        ----WorldMapUpdateAroundPlayer----
+                        Load and refresh map chunks around the player in the background.
+                        default: true""")
+                .define("WorldMapUpdateAroundPlayer", true);
+
+        WorldMapNightShading = BUILDER.comment("""
+                        ----WorldMapNightShading----
+                        Darken the world map at night.
+                        default: true""")
+                .define("WorldMapNightShading", true);
+
+        WorldMapShowCoordinates = BUILDER.comment("""
+                        ----WorldMapShowCoordinates----
+                        Show the coordinates and zoom readout on the world map.
+                        default: true""")
+                .define("WorldMapShowCoordinates", true);
+
+        WorldMapClaimFill = BUILDER.comment("""
+                        ----WorldMapClaimFill----
+                        Draw the filled territory overlay on the world map.
+                        default: true""")
+                .define("WorldMapClaimFill", true);
+
+        WorldMapPlayerIconStyle = BUILDER.comment("""
+                        ----WorldMapPlayerIconStyle----
+                        Player icon style on the world map.
+                        default: OVERHAULED""")
+                .defineEnum("WorldMapPlayerIconStyle", MapPlayerIconStyle.OVERHAULED);
 
         BUILDER.pop();
         CLIENT = BUILDER.build();

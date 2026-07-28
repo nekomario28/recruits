@@ -10,17 +10,19 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.PacketFlow;
 import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
+import java.util.UUID;
+
 
 public class MessageDeleteClaim implements RecruitsMessage<MessageDeleteClaim> {
 
-    private CompoundTag claimNBT;
+    private UUID claimId;
 
     public MessageDeleteClaim(){
 
     }
 
     public MessageDeleteClaim(RecruitsClaim claim) {
-        this.claimNBT = claim.toNBT();
+        this.claimId = claim == null ? null : claim.getUUID();
     }
 
     public PacketFlow getExecutingSide() {
@@ -41,11 +43,14 @@ public class MessageDeleteClaim implements RecruitsMessage<MessageDeleteClaim> {
     }
 
     public MessageDeleteClaim fromBytes(FriendlyByteBuf buf) {
-        this.claimNBT = buf.readNbt();
+        this.claimId = buf.readBoolean() ? buf.readUUID() : null;
         return this;
     }
 
     public void toBytes(FriendlyByteBuf buf) {
-        buf.writeNbt(claimNBT);
+        buf.writeBoolean(this.claimId != null);
+        if (this.claimId != null) {
+            buf.writeUUID(this.claimId);
+        }
     }
 }

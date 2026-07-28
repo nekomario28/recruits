@@ -2,6 +2,7 @@ package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.ClaimEvents;
 import com.talhanation.recruits.config.RecruitsServerConfig;
+import com.talhanation.recruits.network.codec.ClaimNetworkCodec;
 import com.talhanation.recruits.world.RecruitsClaim;
 import com.talhanation.recruits.world.RecruitsFaction;
 import com.talhanation.recruits.world.RecruitsPlayerInfo;
@@ -21,14 +22,14 @@ import java.util.Set;
 
 public class MessageUpdateClaim implements RecruitsMessage<MessageUpdateClaim> {
 
-    private CompoundTag claimNBT;
+    private RecruitsClaim claim;
 
     public MessageUpdateClaim(){
 
     }
 
     public MessageUpdateClaim(RecruitsClaim claim) {
-        this.claimNBT = claim.toNBT();
+        this.claim = claim;
     }
 
     public PacketFlow getExecutingSide() {
@@ -169,11 +170,11 @@ public class MessageUpdateClaim implements RecruitsMessage<MessageUpdateClaim> {
     }
 
     public MessageUpdateClaim fromBytes(FriendlyByteBuf buf) {
-        this.claimNBT = buf.readNbt();
+        this.claim = ClaimNetworkCodec.readNullableClaim(buf);
         return this;
     }
 
     public void toBytes(FriendlyByteBuf buf) {
-        buf.writeNbt(claimNBT);
+        ClaimNetworkCodec.writeNullableClaim(buf, this.claim);
     }
 }

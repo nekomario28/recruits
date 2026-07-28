@@ -182,6 +182,8 @@ public class CommandEvents {
              if (recruit.getShouldMount()) recruit.setShouldMount(false);
 
              checkPatrolLeaderState(recruit);
+             recruit.clearTarget();
+
              recruit.forcedUpkeep = false;
          }
     }

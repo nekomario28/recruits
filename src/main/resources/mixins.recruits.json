@@ -10,9 +10,12 @@
     "GoalUtilsMixin",
     "LivingEntityMixin",
     "MobMixin",
+    "compat.corpse.CorpseEntityAccessor",
     "WalkNodeEvaluatorMixin"
   ],
   "client": [
+    "compat.corpse.CorpseRendererMixin",
+    "client.ClientLevelMixin",
     "MixinMinecraft"
   ],
   "injectors": {

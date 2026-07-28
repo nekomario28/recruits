@@ -38,6 +38,9 @@ public class MessageTransferRoute implements RecruitsMessage<MessageTransferRout
     @Override
     public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer sender = Objects.requireNonNull(context.getSender());
+        RecruitsRoute route = RecruitsRoute.fromNBT(routeNBT);
+        if (route == null) return;
+
         ServerPlayer target = sender.getServer().getPlayerList().getPlayer(targetPlayerUUID);
         if (target == null) return;
         SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> target),

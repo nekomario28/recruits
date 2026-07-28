@@ -1,6 +1,8 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.client.ClientManager;
+import com.talhanation.recruits.client.gui.worldmap.claim.WorldMapClaimIndex;
+import com.talhanation.recruits.network.codec.ClaimNetworkCodec;
 import com.talhanation.recruits.world.RecruitsClaim;
 import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.nbt.CompoundTag;
@@ -12,27 +14,50 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class MessageToClientUpdateClaims implements RecruitsMessage<MessageToClientUpdateClaims> {
     private CompoundTag claimsListNBT;
     private int claimCost;
     private int chunkCost;
+    private int maxClaimChunks;
     private boolean cascadeOfCost;
     private boolean allowClaiming;
     private boolean fogOfWarEnabled;
     private ItemStack currencyItemStack;
+    private boolean resetClaims = true;
+    private boolean syncComplete = true;
+
     public MessageToClientUpdateClaims() {
     }
 
-    public MessageToClientUpdateClaims(List<RecruitsClaim> list, int claimCost, int chunkCost, boolean cascadeOfCost, boolean allowClaiming, boolean fogOfWarEnabled, ItemStack currencyItemStack) {
-        this.claimsListNBT = RecruitsClaim.toNBT(list);
+    public MessageToClientUpdateClaims(List<RecruitsClaim> list, int claimCost, int chunkCost, int maxClaimChunks, boolean cascadeOfCost, boolean allowClaiming, boolean fogOfWarEnabled, ItemStack currencyItemStack) {
+        this(list, claimCost, chunkCost, maxClaimChunks, cascadeOfCost, allowClaiming, fogOfWarEnabled, currencyItemStack, true, true);
+    }
+
+    public MessageToClientUpdateClaims(
+            List<RecruitsClaim> list,
+            int claimCost,
+            int chunkCost,
+            int maxClaimChunks,
+            boolean cascadeOfCost,
+            boolean allowClaiming,
+            boolean fogOfWarEnabled,
+            ItemStack currencyItemStack,
+            boolean resetClaims,
+            boolean syncComplete) {
+        this.claims = list == null ? Collections.emptyList() : new ArrayList<>(list);
         this.claimCost = claimCost;
         this.chunkCost = chunkCost;
+        this.maxClaimChunks = maxClaimChunks;
         this.cascadeOfCost = cascadeOfCost;
         this.currencyItemStack = currencyItemStack;
         this.allowClaiming = allowClaiming;
         this.fogOfWarEnabled = fogOfWarEnabled;
+        this.resetClaims = resetClaims;
+        this.syncComplete = syncComplete;
     }
 
     @Override
@@ -46,35 +71,44 @@ public class MessageToClientUpdateClaims implements RecruitsMessage<MessageToCli
         ClientManager.recruitsClaims = RecruitsClaim.getListFromNBT(claimsListNBT);
         ClientManager.configValueClaimCost = this.claimCost;
         ClientManager.configValueChunkCost = this.chunkCost;
+        ClientManager.configValueMaxClaimChunks = this.maxClaimChunks;
         ClientManager.configValueCascadeClaimCost = this.cascadeOfCost;
         ClientManager.currencyItemStack = this.currencyItemStack;
         ClientManager.configValueIsClaimingAllowed = this.allowClaiming;
         ClientManager.configFogOfWarEnabled = this.fogOfWarEnabled;
 
-        ClientManager.rebuildActiveSieges();
+        if (syncComplete) {
+            ClientManager.rebuildActiveSieges();
+        }
     }
 
     @Override
     public MessageToClientUpdateClaims fromBytes(FriendlyByteBuf buf) {
-        this.claimsListNBT = buf.readNbt();
+        this.claims = ClaimNetworkCodec.readClaimList(buf);
         this.claimCost = buf.readInt();
         this.chunkCost = buf.readInt();
+        this.maxClaimChunks = buf.readInt();
         this.cascadeOfCost = buf.readBoolean();
         this.currencyItemStack = ItemStack.OPTIONAL_STREAM_CODEC.decode((RegistryFriendlyByteBuf) buf);
         this.allowClaiming = buf.readBoolean();
         this.fogOfWarEnabled = buf.readBoolean();
+        this.resetClaims = buf.readBoolean();
+        this.syncComplete = buf.readBoolean();
         return this;
     }
 
     @Override
     public void toBytes(FriendlyByteBuf buf) {
-        buf.writeNbt(this.claimsListNBT);
+        ClaimNetworkCodec.writeClaimList(buf, this.claims);
         buf.writeInt(this.claimCost);
         buf.writeInt(this.chunkCost);
+        buf.writeInt(this.maxClaimChunks);
         buf.writeBoolean(this.cascadeOfCost);
         ItemStack.OPTIONAL_STREAM_CODEC.encode((RegistryFriendlyByteBuf) buf, this.currencyItemStack == null ? ItemStack.EMPTY : this.currencyItemStack);
         buf.writeBoolean(this.allowClaiming);
         buf.writeBoolean(this.fogOfWarEnabled);
+        buf.writeBoolean(this.resetClaims);
+        buf.writeBoolean(this.syncComplete);
     }
 
 }

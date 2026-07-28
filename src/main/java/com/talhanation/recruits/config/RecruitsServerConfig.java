@@ -320,7 +320,7 @@ public class RecruitsServerConfig {
                 .define("RecruitsChunkLoading", true);
 
         RecruitsStarving = BUILDER.comment("""
-                        RecruitsChunkLoading
+                        RecruitsStarving
                         \t(takes effect after restart)
                         \t
                         Should recruit-starve to death if their hunger drops to 0 ?
@@ -328,6 +328,16 @@ public class RecruitsServerConfig {
 
                 .worldRestart()
                 .define("RecruitsStarving", false);
+
+        RecruitsUpdateHungerAndMorale = BUILDER.comment("""
+                        RecruitsStarving
+                        \t(takes effect after restart)
+                        \t
+                        Should recruits update hunger and morale state?
+                        default: false""")
+
+                .worldRestart()
+                .define("RecruitsUpdateHungerAndMorale", true);
         /*
         Village Config
          */
@@ -741,26 +751,6 @@ public class RecruitsServerConfig {
                 .worldRestart()
                 .defineInRange("AsyncPathfindingThreadsCount", 1, 1, Runtime.getRuntime().availableProcessors());
 
-        UseAsyncTargetFinding = BUILDER.comment("""
-                        Use asynchronous target finding run on multithread executor.
-                        Improves TPS on huge numbers of recruits (and somehow FPS) a lot,
-                            but useless if machine has only one physical core available.
-                        Can lead to some small delays in target finding (recruits finding who to attack),
-                            but I have seen none of case when I was testing so should work fine.
-                        \t(takes effect after restart)
-                        \tdefault: true""")
-                .worldRestart()
-                .define("UseAsyncTargetFinding", true);
-
-        AsyncTargetFindingThreadsCount = BUILDER.comment("""
-                        How much threads to use for target finding.
-                        Needs to be calibrated manually.
-                        Usually good value is n/6, where n is amount of logical cores (threads) you have on CPU.
-                        \t(takes effect after restart)
-                        \tdefault: 1""")
-                .worldRestart()
-                .defineInRange("AsyncTargetFindingThreadsCount", 1, 1, Runtime.getRuntime().availableProcessors());
-
         BUILDER.pop();
         BUILDER.pop();
         BUILDER.comment("Claiming Config:").push("Claiming");
@@ -785,6 +775,14 @@ public class RecruitsServerConfig {
                         \tdefault: 20""")
                 .worldRestart()
                 .defineInRange("ChunkCost", 15, 0, 1453);
+
+        MaxClaimChunks = BUILDER.comment("""
+                        The maximum amount of chunks a single claim territory can contain.
+                        The default claim area is 5x5 chunks, so values below 25 are not allowed.
+                        \t(takes effect after restart)
+                        \tdefault: 50""")
+                .worldRestart()
+                .defineInRange("MaxClaimChunks", 50, 25, 4096);
 
         CascadeThePriceOfClaims = BUILDER.comment("""
                         Should the price of claiming an area increase by the specified amount?

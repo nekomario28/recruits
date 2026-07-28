@@ -1,13 +1,14 @@
-package com.talhanation.recruits.client.gui.worldmap;
+package com.talhanation.recruits.client.gui.worldmap.claim;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.talhanation.recruits.Main;
 import com.talhanation.recruits.client.gui.RecruitsScreenBase;
+import com.talhanation.recruits.client.gui.faction.FactionEditScreen;
 import com.talhanation.recruits.client.gui.player.PlayersList;
 import com.talhanation.recruits.client.gui.player.SelectPlayerScreen;
-import com.talhanation.recruits.client.gui.faction.FactionEditScreen;
 import com.talhanation.recruits.client.gui.widgets.RecruitsCheckBox;
 import com.talhanation.recruits.client.gui.widgets.SelectedPlayerWidget;
+import com.talhanation.recruits.client.gui.worldmap.WorldMapScreen;
 import com.talhanation.recruits.network.MessageUpdateClaim;
 import com.talhanation.recruits.world.RecruitsClaim;
 import com.talhanation.recruits.world.RecruitsPlayerInfo;
@@ -44,12 +45,11 @@ public class ClaimEditScreen extends RecruitsScreenBase {
     private RecruitsPlayerInfo playerInfo;
     private Button saveButton;
     private Button backButton;
-    private Button deleteButton;
-    private String claimName;
     private String savedName;
     private WorldMapScreen parent;
+
     public ClaimEditScreen(WorldMapScreen screen, RecruitsClaim claim, Player player) {
-        super(TITLE, 1,1);
+        super(TITLE, 1, 1);
         this.parent = screen;
         this.claim = claim;
         this.player = player;
@@ -58,20 +58,21 @@ public class ClaimEditScreen extends RecruitsScreenBase {
 
     public int x;
     public int y;
+
     @Override
     protected void init() {
         this.allowBlockBreaking = claim.isBlockBreakingAllowed();
         this.allowBlockPlacing = claim.isBlockPlacementAllowed();
         this.allowBlockInteracting = claim.isBlockInteractionAllowed();
 
-        if(savedName == null) savedName = claim.getName();
+        if (savedName == null) savedName = claim.getName();
         x = this.width / 2;
         y = this.height / 2;
 
         setWidgets();
     }
 
-    private void setWidgets(){
+    private void setWidgets() {
         clearWidgets();
         editNameBox = new EditBox(font, x - 70, y - 110, 140, 20, Component.literal(""));
         editNameBox.setTextColor(-1);
@@ -81,66 +82,61 @@ public class ClaimEditScreen extends RecruitsScreenBase {
         editNameBox.setValue(savedName);
         editNameBox.setResponder(this::onTextInput);
         this.addRenderableWidget(editNameBox);
-        if(playerInfo != null){
-            selectedPlayerWidget = new SelectedPlayerWidget(font, x - 70, y - 87, 140, 20, Component.literal("x"),
+        if (playerInfo != null) {
+            selectedPlayerWidget = new SelectedPlayerWidget(
+                    font, x - 70, y - 87, 140, 20, Component.literal("x"),
                     () -> {
                         playerInfo = null;
                         this.selectedPlayerWidget.setPlayer(null, null);
-
                         setWidgets();
-                    }
-            );
+                    });
             selectedPlayerWidget.setPlayer(claim.playerInfo.getUUID(), claim.playerInfo.getName());
             this.addRenderableWidget(selectedPlayerWidget);
-        }
-        else{
-            Button selectPlayerButton = addRenderableWidget(new ExtendedButton(x - 70, y - 87, 140, 20, SelectPlayerScreen.TITLE,
+        } else {
+            Button selectPlayerButton = addRenderableWidget(new ExtendedButton(
+                    x - 70, y - 87, 140, 20, SelectPlayerScreen.TITLE,
                     button -> {
-                        minecraft.setScreen(new SelectPlayerScreen(this, player, SelectPlayerScreen.TITLE, SelectPlayerScreen.BUTTON_SELECT, SelectPlayerScreen.BUTTON_SELECT_TOOLTIP, true, PlayersList.FilterType.ANY_TEAM,
+                        SelectPlayerScreen selectPlayerScreen = new SelectPlayerScreen(
+                                this,
+                                player,
+                                SelectPlayerScreen.TITLE,
+                                SelectPlayerScreen.BUTTON_SELECT,
+                                SelectPlayerScreen.BUTTON_SELECT_TOOLTIP,
+                                true,
+                                PlayersList.FilterType.ANY_TEAM,
                                 (playerInfo) -> {
                                     this.playerInfo = playerInfo;
                                     this.claim.setPlayer(playerInfo);
                                     minecraft.setScreen(this);
-                                }
-                        ));
-                    }
-            ));
+                                });
+                        minecraft.setScreen(selectPlayerScreen);
+                    }));
             this.addRenderableWidget(selectPlayerButton);
         }
 
         int checkBoxWidth = 140;
         int checkBoxHeight = 20;
 
-        this.blockPlacingCheckBox = new RecruitsCheckBox(x - 70, y + 20, checkBoxWidth, checkBoxHeight, CHECKBOX_ALLOW_PLACING,
+        this.blockPlacingCheckBox = new RecruitsCheckBox(
+                x - 70, y + 20, checkBoxWidth, checkBoxHeight, CHECKBOX_ALLOW_PLACING,
                 this.allowBlockPlacing,
-                (bool) -> {
-                    this.allowBlockPlacing = bool;
-                }
-        );
+                bool -> this.allowBlockPlacing = bool);
         this.addRenderableWidget(blockPlacingCheckBox);
 
-
-        this.blockBreakingCheckBox = new RecruitsCheckBox(x - 70, y + 40, checkBoxWidth, checkBoxHeight, CHECKBOX_ALLOW_BREAKING,
+        this.blockBreakingCheckBox = new RecruitsCheckBox(
+                x - 70, y + 40, checkBoxWidth, checkBoxHeight, CHECKBOX_ALLOW_BREAKING,
                 this.allowBlockBreaking,
-                (bool) -> {
-                    this.allowBlockBreaking = bool;
-                }
-        );
+                bool -> this.allowBlockBreaking = bool);
         this.addRenderableWidget(blockBreakingCheckBox);
 
-
-        this.blockInteractionCheckBox = new RecruitsCheckBox(x - 70, y + 60, checkBoxWidth, checkBoxHeight, CHECKBOX_ALLOW_INTERACTING,
+        this.blockInteractionCheckBox = new RecruitsCheckBox(
+                x - 70, y + 60, checkBoxWidth, checkBoxHeight, CHECKBOX_ALLOW_INTERACTING,
                 this.allowBlockInteracting,
-                (bool) -> {
-                    this.allowBlockInteracting = bool;
-                }
-        );
+                bool -> this.allowBlockInteracting = bool);
         addRenderableWidget(blockInteractionCheckBox);
 
         backButton = new ExtendedButton(x + 5, y + 90, 70, 20, BUTTON_BACK,
-                button -> {
-                    this.minecraft.setScreen(this.parent);
-                });
+                button -> this.minecraft.setScreen(this.parent));
         addRenderableWidget(backButton);
 
         saveButton = new ExtendedButton(x - 75, y + 90, 70, 20, BUTTON_SAVE,
@@ -174,13 +170,14 @@ public class ClaimEditScreen extends RecruitsScreenBase {
 
     }
 
-    public void checkSaveActive(){
+    public void checkSaveActive() {
         this.saveButton.active = playerInfo != null;
     }
 
     private void onTextInput(String string) {
         this.savedName = string;
     }
+
     int panelWidth = 150;
     int panelHeight = 200;
     int panelX = -75;
@@ -191,7 +188,12 @@ public class ClaimEditScreen extends RecruitsScreenBase {
     @Override
     public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float delta) {
         super.renderBackground(guiGraphics, mouseX, mouseY, delta);
-        guiGraphics.fill(panelX - 1 + x, panelY - 1 + y, panelX + x  + panelWidth + 1, panelY + y + panelHeight + 1, 0xFF555555);
+        guiGraphics.fill(
+                panelX - 1 + x,
+                panelY - 1 + y,
+                panelX + x + panelWidth + 1,
+                panelY + y + panelHeight + 1,
+                0xFF555555);
         guiGraphics.fill(panelX + x, panelY + y, panelX + x + panelWidth, panelY + y + panelHeight, 0xFF222222);
     }
 
@@ -199,10 +201,11 @@ public class ClaimEditScreen extends RecruitsScreenBase {
     public void renderForeground(GuiGraphics guiGraphics, int mouseX, int mouseY, float delta) {
         super.renderForeground(guiGraphics, mouseX, mouseY, delta);
 
-        renderClaimMiniMapAreaFramed(guiGraphics, claimMiniX + x, claimMiniY + y , 140, 70, this.claim);
+        renderClaimMiniMapAreaFramed(guiGraphics, claimMiniX + x, claimMiniY + y, 140, 70, this.claim);
     }
 
-    private void renderClaimMiniMapAreaFramed(GuiGraphics guiGraphics, int x, int y, int width, int height, RecruitsClaim claim) {
+    private void renderClaimMiniMapAreaFramed(
+            GuiGraphics guiGraphics, int x, int y, int width, int height, RecruitsClaim claim) {
         List<ChunkPos> chunks = claim.getClaimedChunks();
         if (chunks.isEmpty()) return;
         if (claim.getOwnerFaction() == null) return;
@@ -263,10 +266,24 @@ public class ClaimEditScreen extends RecruitsScreenBase {
             boolean right = !claim.containsChunk(dirs[3]);
 
             int borderColor = 0xFFFFFFFF;
-            if (top)    guiGraphics.fill((int) px, (int) py, (int) (px + cellSize), (int) py + 1, borderColor);
-            if (bottom) guiGraphics.fill((int) px, (int) (py + cellSize - 1), (int) (px + cellSize), (int) (py + cellSize), borderColor);
-            if (left)   guiGraphics.fill((int) px, (int) py, (int) px + 1, (int) (py + cellSize), borderColor);
-            if (right)  guiGraphics.fill((int) (px + cellSize - 1), (int) py, (int) (px + cellSize), (int) (py + cellSize), borderColor);
+            if (top) guiGraphics.fill((int) px, (int) py, (int) (px + cellSize), (int) py + 1, borderColor);
+            if (bottom) {
+                guiGraphics.fill(
+                        (int) px,
+                        (int) (py + cellSize - 1),
+                        (int) (px + cellSize),
+                        (int) (py + cellSize),
+                        borderColor);
+            }
+            if (left) guiGraphics.fill((int) px, (int) py, (int) px + 1, (int) (py + cellSize), borderColor);
+            if (right) {
+                guiGraphics.fill(
+                        (int) (px + cellSize - 1),
+                        (int) py,
+                        (int) (px + cellSize),
+                        (int) (py + cellSize),
+                        borderColor);
+            }
         }
 
         // Claim-Name über Zentrum
@@ -275,7 +292,8 @@ public class ClaimEditScreen extends RecruitsScreenBase {
         float cz = offsetY + (center.z - minZ + 0.5f) * cellSize;
 
         int textWidth = font.width(claim.getName());
-        guiGraphics.drawString(font, claim.getName(), (int) (cx - textWidth / 2f), (int) (cz - 6), 0xFFFFFF, false);
+        guiGraphics.drawString(
+                font, claim.getName(), (int) (cx - textWidth / 2f), (int) (cz - 6), 0xFFFFFF, false);
 
         RenderSystem.disableScissor();
     }

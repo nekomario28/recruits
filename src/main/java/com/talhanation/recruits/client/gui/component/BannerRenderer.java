@@ -82,7 +82,13 @@ public class BannerRenderer {
     }
 
     public void setRecruitsFaction(RecruitsFaction faction){
-        if(faction == null) return;
+        if (faction == null || faction.getBanner() == null) {
+            this.recruitsFaction = null;
+            this.bannerItem = ItemStack.EMPTY;
+            this.resultBannerPatterns = List.of();
+            return;
+        }
+
         this.recruitsFaction = faction;
         this.bannerItem = Minecraft.getInstance().level == null ? ItemStack.EMPTY : ItemStack.parseOptional(Minecraft.getInstance().level.registryAccess(), faction.getBanner());
         if (this.bannerItem.getItem() instanceof BannerItem item) {

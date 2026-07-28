@@ -1,6 +1,7 @@
-package com.talhanation.recruits.client.gui.worldmap;
+package com.talhanation.recruits.client.gui.worldmap.route;
 
 import com.talhanation.recruits.client.ClientManager;
+import com.talhanation.recruits.client.gui.worldmap.WorldMapScreen;
 import com.talhanation.recruits.world.RecruitsRoute;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -9,6 +10,13 @@ import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
 public class WaypointEditPopup {
+
+    private static final Component ACTION = Component.translatable("gui.recruits.map.waypoint.action");
+    private static final Component ACTION_NONE = Component.translatable("gui.recruits.map.waypoint.action.none");
+    private static final Component ACTION_WAIT = Component.translatable("gui.recruits.map.waypoint.action.wait");
+    private static final Component SECONDS = Component.translatable("gui.recruits.map.waypoint.seconds");
+    private static final Component OK = Component.translatable("gui.recruits.map.route.ok");
+    private static final Component CANCEL = Component.translatable("gui.recruits.map.route.cancel");
 
     private static final int WIDTH = 210;
     private static final int HEIGHT = 110;
@@ -47,11 +55,9 @@ public class WaypointEditPopup {
         this.waypoint = waypoint;
         this.actionType = waypoint.getAction() != null ? waypoint.getAction().getType() : null;
 
-        String initVal = (waypoint.getAction() != null)
-                ? String.valueOf(waypoint.getAction().getWaitSeconds())
-                : "0";
+        String initVal = waypoint.getAction() != null ? String.valueOf(waypoint.getAction().getWaitSeconds()) : "0";
 
-        // Create EditBox for seconds — positioned at render time when we know px/py
+        // Create EditBox for seconds; position it at render time when we know px/py.
         waitField = null; // rebuilt in render on first draw
         pendingWaitFieldValue = initVal;
 
@@ -71,8 +77,7 @@ public class WaypointEditPopup {
         int fieldX = px + 66;
         int fieldW = 54;
 
-        waitField = new EditBox(Minecraft.getInstance().font,
-                fieldX, fieldY + 2, fieldW, 8, Component.empty());
+        waitField = new EditBox(Minecraft.getInstance().font, fieldX, fieldY + 2, fieldW, 8, Component.empty());
         waitField.setMaxLength(5);
         waitField.setValue(pendingWaitFieldValue);
         waitField.setFilter(s -> s.chars().allMatch(Character::isDigit));
@@ -91,15 +96,20 @@ public class WaypointEditPopup {
     }
 
     private void confirm() {
-        if (waypoint == null) { close(); return; }
+        if (waypoint == null) {
+            close();
+            return;
+        }
 
         if (actionType == null) {
             waypoint.setAction(null);
         } else {
             int seconds = 0;
             if (waitField != null && !waitField.getValue().isBlank()) {
-                try { seconds = Math.max(0, Integer.parseInt(waitField.getValue())); }
-                catch (NumberFormatException ignored) {}
+                try {
+                    seconds = Math.max(0, Integer.parseInt(waitField.getValue()));
+                } catch (NumberFormatException ignored) {
+                }
             }
             waypoint.setAction(new RecruitsRoute.WaypointAction(actionType, seconds));
         }
@@ -214,10 +224,12 @@ public class WaypointEditPopup {
         if (!visible) return false;
 
         if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
-            confirm(); return true;
+            confirm();
+            return true;
         }
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            close(); return true;
+            close();
+            return true;
         }
 
         if (waitField != null && actionType == RecruitsRoute.WaypointAction.Type.WAIT) {

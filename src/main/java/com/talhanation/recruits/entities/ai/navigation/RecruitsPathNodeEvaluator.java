@@ -174,12 +174,12 @@ public class RecruitsPathNodeEvaluator extends NodeEvaluator {
     private final Long2ObjectMap<PathType> pathTypesByPosCache = new Long2ObjectOpenHashMap<>();
     private final Object2BooleanMap<AABB> collisionCache = new Object2BooleanOpenHashMap<>();
 
-        public void done() {
-            this.mob.onPathfindingDone();
-            this.pathTypesByPosCache.clear();
-            this.collisionCache.clear();
-            super.done();
-        }
+    public void done() {
+        this.mob.onPathfindingDone();
+        this.pathTypesByPosCache.clear();
+        this.collisionCache.clear();
+        super.done();
+    }
 
         public Node getStart() {
             BlockPos.MutableBlockPos blockpos$mutableblockpos = new BlockPos.MutableBlockPos();
@@ -203,33 +203,33 @@ public class RecruitsPathNodeEvaluator extends NodeEvaluator {
                     for(blockpos = this.mob.blockPosition(); (this.currentContext.getBlockState(blockpos).isAir() || this.currentContext.getBlockState(blockpos).isPathfindable(PathComputationType.LAND)) && blockpos.getY() > this.mob.level().getMinBuildHeight(); blockpos = blockpos.below()) {
                     }
 
-                    i = blockpos.above().getY();
-                }
-            } else {
-                while(this.mob.canStandOnFluid(blockstate.getFluidState())) {
                     ++i;
                     blockstate = this.currentContext.getBlockState(blockpos$mutableblockpos.set(this.mob.getX(), (double)i, this.mob.getZ()));
                 }
-
-                --i;
-            }
-
-            BlockPos blockpos1 = this.mob.blockPosition();
-            if (!this.canStartAt(blockpos$mutableblockpos.set(blockpos1.getX(), i, blockpos1.getZ()))) {
-                AABB aabb = this.mob.getBoundingBox();
-                if (this.canStartAt(blockpos$mutableblockpos.set(aabb.minX, (double)i, aabb.minZ)) || this.canStartAt(blockpos$mutableblockpos.set(aabb.minX, (double)i, aabb.maxZ)) || this.canStartAt(blockpos$mutableblockpos.set(aabb.maxX, (double)i, aabb.minZ)) || this.canStartAt(blockpos$mutableblockpos.set(aabb.maxX, (double)i, aabb.maxZ))) {
-                    return this.getStartNode(blockpos$mutableblockpos);
+            } else if (this.mob.onGround()) {
+                i = Mth.floor(this.mob.getY() + 0.5D);
+            } else {
+                BlockPos blockpos;
+                for(blockpos = this.mob.blockPosition(); (this.level.getBlockState(blockpos).isAir() || this.level.getBlockState(blockpos).isPathfindable(this.level, blockpos, PathComputationType.LAND)) && blockpos.getY() > this.level.getMinBuildHeight(); blockpos = blockpos.below()) {
                 }
+
+                i = blockpos.above().getY();
+            }
+        } else {
+            while(this.mob.canStandOnFluid(blockstate.getFluidState())) {
+                ++i;
+                blockstate = this.level.getBlockState(blockpos$mutableblockpos.set(this.mob.getX(), (double)i, this.mob.getZ()));
             }
 
-            return this.getStartNode(new BlockPos(blockpos1.getX(), i, blockpos1.getZ()));
+            --i;
         }
 
-        protected Node getStartNode(BlockPos p_230632_) {
-            Node node = this.getNode(p_230632_);
-            node.type = this.getBlockPathType(this.mob, node.asBlockPos());
-            node.costMalus = this.mob.getPathfindingMalus(node.type);
-            return node;
+        BlockPos blockpos1 = this.mob.blockPosition();
+        if (!this.canStartAt(blockpos$mutableblockpos.set(blockpos1.getX(), i, blockpos1.getZ()))) {
+            AABB aabb = this.mob.getBoundingBox();
+            if (this.canStartAt(blockpos$mutableblockpos.set(aabb.minX, (double)i, aabb.minZ)) || this.canStartAt(blockpos$mutableblockpos.set(aabb.minX, (double)i, aabb.maxZ)) || this.canStartAt(blockpos$mutableblockpos.set(aabb.maxX, (double)i, aabb.minZ)) || this.canStartAt(blockpos$mutableblockpos.set(aabb.maxX, (double)i, aabb.maxZ))) {
+                return this.getStartNode(blockpos$mutableblockpos);
+            }
         }
 
         protected boolean canStartAt(BlockPos p_262596_) {
@@ -294,8 +294,9 @@ public class RecruitsPathNodeEvaluator extends NodeEvaluator {
             return i;
         }
 
-        protected boolean isNeighborValid(@Nullable Node p_77627_, Node p_77628_) {
-            return p_77627_ != null && !p_77627_.closed && (p_77627_.costMalus >= 0.0F || p_77628_.costMalus < 0.0F);
+        Node node2 = this.findAcceptedNode(p_77641_.x + 1, p_77641_.y, p_77641_.z, j, d0, Direction.EAST, blockpathtypes1);
+        if (this.isNeighborValid(node2, p_77641_)) {
+            p_77640_[i++] = node2;
         }
 
         protected boolean isDiagonalValid(Node p_77630_, @Nullable Node p_77631_, @Nullable Node p_77632_, @Nullable Node p_77633_) {
@@ -350,6 +351,7 @@ public class RecruitsPathNodeEvaluator extends NodeEvaluator {
         protected boolean isAmphibious() {
             return false;
         }
+    }
 
         @Nullable
         protected Node findAcceptedNode(int p_164726_, int p_164727_, int p_164728_, int p_164729_, double p_164730_, Direction p_164731_, PathType p_164732_) {
@@ -366,9 +368,11 @@ public class RecruitsPathNodeEvaluator extends NodeEvaluator {
                     node = this.getNodeAndUpdateCostToMax(p_164726_, p_164727_, p_164728_, blockpathtypes, f);
                 }
 
-                if (doesBlockHavePartialCollision(p_164732_) && node != null && node.costMalus >= 0.0F && !this.canReachWithoutCollision(node)) {
-                    node = null;
-                }
+    private boolean canReachWithoutCollision(Node p_77625_) {
+        AABB aabb = this.mob.getBoundingBox();
+        Vec3 vec3 = new Vec3((double)p_77625_.x - this.mob.getX() + aabb.getXsize() / 2.0D, (double)p_77625_.y - this.mob.getY() + aabb.getYsize() / 2.0D, (double)p_77625_.z - this.mob.getZ() + aabb.getZsize() / 2.0D);
+        int i = Mth.ceil(vec3.length() / aabb.getSize());
+        vec3 = vec3.scale((double)(1.0F / (float)i));
 
                 if (blockpathtypes != PathType.WALKABLE && (!this.isAmphibious() || blockpathtypes != PathType.WATER)) {
                     if ((node == null || node.costMalus < 0.0F) && p_164729_ > 0 && (blockpathtypes != PathType.FENCE || this.canWalkOverFences()) && blockpathtypes != PathType.UNPASSABLE_RAIL && blockpathtypes != PathType.TRAPDOOR && blockpathtypes != PathType.POWDER_SNOW) {
@@ -382,6 +386,7 @@ public class RecruitsPathNodeEvaluator extends NodeEvaluator {
                             }
                         }
                     }
+                }
 
                     if (!this.isAmphibious() && blockpathtypes == PathType.WATER && !this.canFloat()) {
                         if (this.getCachedBlockType(this.mob, p_164726_, p_164727_ - 1, p_164728_) != PathType.WATER) {
@@ -437,8 +442,6 @@ public class RecruitsPathNodeEvaluator extends NodeEvaluator {
                 } else {
                     return node;
                 }
-            }
-        }
 
         private double getMobJumpHeight() {
             return Math.max(1.125D, (double)this.mob.maxUpStep());
@@ -490,9 +493,40 @@ public class RecruitsPathNodeEvaluator extends NodeEvaluator {
                         return blockpathtypes2;
                     }
 
-                    if (p_265398_.getPathfindingMalus(blockpathtypes2) >= p_265398_.getPathfindingMalus(blockpathtypes1)) {
-                        blockpathtypes1 = blockpathtypes2;
-                    }
+    private Node getNodeAndUpdateCostToMax(int p_230620_, int p_230621_, int p_230622_, BlockPathTypes p_230623_, float p_230624_) {
+        Node node = this.getNode(p_230620_, p_230621_, p_230622_);
+        node.type = p_230623_;
+        node.costMalus = Math.max(node.costMalus, p_230624_);
+        return node;
+    }
+
+    private Node getBlockedNode(int p_230628_, int p_230629_, int p_230630_) {
+        Node node = this.getNode(p_230628_, p_230629_, p_230630_);
+        node.type = BlockPathTypes.BLOCKED;
+        node.costMalus = -1.0F;
+        return node;
+    }
+
+    private boolean hasCollisions(AABB p_77635_) {
+        return this.collisionCache.computeIfAbsent(p_77635_, (p_192973_) -> {
+            return !this.level.noCollision(this.mob, p_77635_);
+        });
+    }
+
+    public BlockPathTypes getBlockPathType(BlockGetter p_265141_, int p_265661_, int p_265757_, int p_265716_, Mob p_265398_) {
+        EnumSet<BlockPathTypes> enumset = EnumSet.noneOf(BlockPathTypes.class);
+        BlockPathTypes blockpathtypes = BlockPathTypes.BLOCKED;
+        blockpathtypes = this.getBlockPathTypes(p_265141_, p_265661_, p_265757_, p_265716_, enumset, blockpathtypes, p_265398_.blockPosition());
+        if (enumset.contains(BlockPathTypes.FENCE)) {
+            return BlockPathTypes.FENCE;
+        } else if (enumset.contains(BlockPathTypes.UNPASSABLE_RAIL)) {
+            return BlockPathTypes.UNPASSABLE_RAIL;
+        } else {
+            BlockPathTypes blockpathtypes1 = BlockPathTypes.BLOCKED;
+
+            for(BlockPathTypes blockpathtypes2 : enumset) {
+                if (p_265398_.getPathfindingMalus(blockpathtypes2) < 0.0F) {
+                    return blockpathtypes2;
                 }
 
                 return blockpathtypes == PathType.OPEN && p_265398_.getPathfindingMalus(blockpathtypes1) == 0.0F && this.entityWidth <= 1 ? PathType.OPEN : blockpathtypes1;
@@ -512,13 +546,13 @@ public class RecruitsPathNodeEvaluator extends NodeEvaluator {
                             p_265458_ = blockpathtypes;
                         }
 
-                        p_265263_.add(blockpathtypes);
-                    }
-                }
-            }
+                        if (isBurningBlock(blockstate)) {
+                            return BlockPathTypes.DANGER_FIRE;
+                        }
 
-            return p_265458_;
-        }
+                        if (p_77608_.getFluidState(p_77609_).is(FluidTags.WATER)) {
+                            return BlockPathTypes.WATER_BORDER;
+                        }
 
         protected PathType evaluateBlockPathType(BlockGetter p_265305_, BlockPos p_265350_, PathType p_265551_) {
             boolean flag = this.canPassDoors();
@@ -622,10 +656,11 @@ public class RecruitsPathNodeEvaluator extends NodeEvaluator {
                     }
                 }
             }
+        }
 
-            return p_77610_;
-        }
-        public static boolean isBurningBlock(BlockState p_77623_) {
-            return p_77623_.is(BlockTags.FIRE) || p_77623_.is(Blocks.LAVA) || p_77623_.is(Blocks.MAGMA_BLOCK) || CampfireBlock.isLitCampfire(p_77623_) || p_77623_.is(Blocks.LAVA_CAULDRON);
-        }
+        return p_77610_;
     }
+    public static boolean isBurningBlock(BlockState p_77623_) {
+        return p_77623_.is(BlockTags.FIRE) || p_77623_.is(Blocks.LAVA) || p_77623_.is(Blocks.MAGMA_BLOCK) || CampfireBlock.isLitCampfire(p_77623_) || p_77623_.is(Blocks.LAVA_CAULDRON);
+    }
+}

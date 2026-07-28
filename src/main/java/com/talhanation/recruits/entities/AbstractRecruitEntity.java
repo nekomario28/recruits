@@ -9,8 +9,6 @@ import com.talhanation.recruits.compat.smallships.SmallShips;
 import com.talhanation.recruits.config.RecruitsClientConfig;
 import com.talhanation.recruits.config.RecruitsServerConfig;
 import com.talhanation.recruits.entities.ai.*;
-import com.talhanation.recruits.entities.ai.async.AsyncManager;
-import com.talhanation.recruits.entities.ai.async.AsyncTaskWithCallback;
 import com.talhanation.recruits.entities.ai.compat.BlockWithWeapon;
 import com.talhanation.recruits.entities.ai.navigation.RecruitPathNavigation;
 import com.talhanation.recruits.entities.ai.navigation.RecruitsOpenDoorGoal;
@@ -57,6 +55,7 @@ import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.wither.WitherBoss;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerType;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
@@ -81,8 +80,6 @@ import org.jetbrains.annotations.NotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.util.*;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
 
 public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
     private static final EntityDataAccessor<Integer> DATA_REMAINING_ANGER_TIME = SynchedEntityData.defineId(AbstractRecruitEntity.class, EntityDataSerializers.INT);
@@ -133,7 +130,14 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
     public int rotateTicks;
     public int formationPos = -1;
     private int maxFallDistance;
-    private final int tickOffset = (int)(System.nanoTime() % 20);
+    // Stagger periodic work (target search, arrow pickup, LoS re-check) across ticks so the cost
+    // is spread evenly instead of spiking every 20th tick. Derived from the entity id (uniformly
+    // distributed) rather than spawn time, so armies that spawn together still scatter. 60 is the
+    // largest search interval, so id % 60 distributes both the 20-tick and 60-tick cases evenly
+    // (60 is a multiple of 20, so the 20-tick phases stay balanced too).
+    private int getTickPhase() {
+        return Math.floorMod(this.getId(), 60);
+    }
     public Vec3 holdPosVec;
     public boolean isInFormation;
     public boolean holdFormation;
@@ -201,7 +205,7 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
         if (this.getCommandSenderWorld().isClientSide()) return;
 
         if(needsColorUpdate && this.getTeam() != null) updateColor(this.getTeam().getName());
-        if(this instanceof IRangedRecruit  && (this.tickCount + this.tickOffset) % 20 == 0) pickUpArrows();
+        if(this instanceof IRangedRecruit  && (this.tickCount + getTickPhase()) % 20 == 0) pickUpArrows();
         if(needsTeamUpdate) updateTeam();
         if(needsGroupUpdate) updateGroup();
 
@@ -235,12 +239,21 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
         if(this.attackCooldown > 0) this.attackCooldown--;
 
 
-        if(this.isAlive() && (this.tickCount + this.tickOffset) % 20 == 0 && this.getState() != 3){
+        if(this.isAlive() && this.getState() != 3 && (this.tickCount + getTickPhase()) % getTargetSearchInterval() == 0){
             this.searchForTargets();
         }
 
         LivingEntity currentTarget = this.getTarget();
         if(currentTarget != null && (currentTarget.isDeadOrDying() || currentTarget.isRemoved())) this.setTarget(null);
+
+            // Option 2 safety net: drop a target that is no longer visible, covering the case where a
+            // recruit saw an enemy but lost sight before any attack/move goal took over (e.g. target
+            // stepped behind cover while still out of melee range). Throttled so that, in the worst
+            // case where no goal queried line of sight this tick, we don't run a raycast every tick per
+            // recruit. EntitySensing caches per tick, so when a goal already queried LoS this is free.
+        else if(currentTarget != null && (this.tickCount + getTickPhase()) % 10 == 0 && !this.getSensing().hasLineOfSight(currentTarget)){
+            this.setTarget(null);
+        }
 
         // Handle face rotation command
         if(this.rotateTicks > 0) {
@@ -253,36 +266,24 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
 
     }
 
+    /**
+     * Adaptive cadence for the (expensive) area target scan.
+     * A recruit that already has a live target does not need to re-scan the full
+     * 80x80x80 box every second - that scan is the real main-thread cost in big battles.
+     * Idle recruits keep the original 20-tick responsiveness for first contact.
+     */
+    private int getTargetSearchInterval() {
+        LivingEntity target = this.getTarget();
+        if (target != null && target.isAlive() && !target.isRemoved()) {
+            return 60;
+        }
+        return 20;
+    }
+
     public void searchForTargets() {
         if (!(this.getCommandSenderWorld() instanceof ServerLevel serverLevel)) return;
 
-        if(RecruitsServerConfig.UseAsyncTargetFinding.get()) searchForTargetsAsync(serverLevel);
-        else searchForTargetsSync(serverLevel);
-    }
-
-    private void searchForTargetsAsync(ServerLevel serverLevel) {
-        AABB searchBox = this.getBoundingBox().inflate(40);
-        List<LivingEntity> nearby = serverLevel.getEntitiesOfClass(
-                LivingEntity.class,
-                searchBox,
-                entity -> entity != this
-        );
-
-        // MULTI THREADED
-        Supplier<List<LivingEntity>> findTargetsTask = () -> {
-            List<LivingEntity> copy = new ArrayList<>(nearby);
-            copy.removeIf(potTarget -> !targetingConditions.test(this, potTarget));
-            copy.sort(Comparator.comparingDouble(e -> e.distanceToSqr(this)));
-            return copy.stream().limit(10).toList();
-        };
-
-        Consumer<List<LivingEntity>> handleTargets = targets -> {
-            if (!targets.isEmpty()) {
-                this.setTarget(targets.get(this.getRandom().nextInt(targets.size())));
-            }
-        };
-
-        AsyncManager.executor.execute(new AsyncTaskWithCallback<>(findTargetsTask, handleTargets, serverLevel));
+        searchForTargetsSync(serverLevel);
     }
 
     private void searchForTargetsSync(ServerLevel serverLevel) {
@@ -290,19 +291,16 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
         List<LivingEntity> nearby = serverLevel.getEntitiesOfClass(
                 LivingEntity.class,
                 searchBox,
-                entity -> entity != this
+                potTarget -> potTarget != this && targetingConditions.test(this, potTarget)
         );
 
-        nearby.removeIf(potTarget -> !targetingConditions.test(this, potTarget));
+        if (nearby.isEmpty()) return;
+
         nearby.sort(Comparator.comparingDouble(e -> e.distanceToSqr(this)));
 
-        if (!nearby.isEmpty()) {
-            LivingEntity target = nearby.stream()
-                    .limit(10)
-                    .toList()
-                    .get(this.getRandom().nextInt(Math.min(10, nearby.size())));
-            this.setTarget(target);
-        }
+        int pool = Math.min(10, nearby.size());
+        LivingEntity target = nearby.get(this.getRandom().nextInt(pool));
+        this.setTarget(target);
     }
 
     private void recruitCheckDespawn() {
@@ -879,7 +877,7 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
         this.setOwnerUUID(Optional.empty());
 
         if (this.getTeam() != null && !keepTeam){
-                FactionEvents.removeRecruitFromTeam(this, this.getTeam(), (ServerLevel) this.getCommandSenderWorld());
+            FactionEvents.removeRecruitFromTeam(this, this.getTeam(), (ServerLevel) this.getCommandSenderWorld());
         }
 
         if(this.getGroup() != null){
@@ -1165,7 +1163,51 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
         recruit.setVariant(variant);
     }
 
-    ////////////////////////////////////is FUNCTIONS////////////////////////////////////
+    /**
+     * Applies the biome skin + variant to a recruit based on the {@link VillagerType} of the
+     * villager it was created from, so a desert villager yields a desert recruit, a savanna
+     * villager a savanna recruit, and so on. This mirrors the biome -> (biomeByte, variant range)
+     * mapping used by {@link #applyBiomeAndVariant}, but keyed off the villager's actual type
+     * instead of the recruit's current position (which may not be set yet at creation time, and
+     * would otherwise sample whatever biome the recruit happens to stand in).
+     */
+    public static void applyVariantFromVillager(AbstractRecruitEntity recruit, Villager villager){
+        VillagerType type = villager.getVillagerData().getType();
+        byte biomeByte;
+        int variant;
+
+        if(type == VillagerType.DESERT){
+            biomeByte = 0;
+            variant = recruit.random.nextInt(15, 19);
+        }
+        else if(type == VillagerType.JUNGLE){
+            biomeByte = 1;
+            variant = recruit.random.nextInt(15, 19);
+        }
+        else if(type == VillagerType.SAVANNA){
+            biomeByte = 3;
+            variant = recruit.random.nextInt(15, 19);
+        }
+        else if(type == VillagerType.SNOW){
+            biomeByte = 4;
+            variant = recruit.random.nextInt(5, 10);
+        }
+        else if(type == VillagerType.SWAMP){
+            biomeByte = 5;
+            variant = recruit.random.nextInt(5, 14);
+        }
+        else if(type == VillagerType.TAIGA){
+            biomeByte = 6;
+            variant = recruit.random.nextInt(5, 14);
+        }
+        else { // VillagerType.PLAINS and any unknown/modded type fall back to plains
+            biomeByte = 2;
+            variant = recruit.random.nextInt(0, 14);
+        }
+
+        recruit.setBiome(biomeByte);
+        recruit.setVariant(variant);
+    }
 
     public boolean isEffectedByCommand(UUID player_uuid) {
         return isEffectedByCommand(player_uuid, null);
@@ -1429,8 +1471,8 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
                 .add(Attributes.FOLLOW_RANGE, 32.0D);
     */
     /**
-        Important for mod compat: See smallships or siege weapons mod
-    **/
+     Important for mod compat: See smallships or siege weapons mod
+     **/
     public boolean isAlliedTo(@Nullable Team team) {
         if(team == null) return false;
         Team recTeam = this.getTeam();
@@ -1818,9 +1860,9 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
     }
 
     public void disableShield() {
-            this.blockCoolDown = this.getBlockCoolDown();
-            this.stopUsingItem();
-            this.getCommandSenderWorld().broadcastEntityEvent(this, (byte) 30);
+        this.blockCoolDown = this.getBlockCoolDown();
+        this.stopUsingItem();
+        this.getCommandSenderWorld().broadcastEntityEvent(this, (byte) 30);
     }
 
     public boolean canBlock(){
@@ -2152,10 +2194,17 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
     }
 
     public boolean canMountEntity(Entity mount) {
-       return mount instanceof AbstractHorse ||
-               RecruitsServerConfig.MountWhiteList.get().contains(mount.getEncodeId()) ||
-               this instanceof SiegeEngineerEntity && SiegeWeapon.isSiegeWeapon(mount)||
-               this instanceof CaptainEntity && SmallShips.isSmallShip(mount);
+        return mount instanceof AbstractHorse ||
+                RecruitsServerConfig.MountWhiteList.get().contains(mount.getEncodeId()) ||
+                this instanceof SiegeEngineerEntity && SiegeWeapon.isSiegeWeapon(mount)||
+                this instanceof CaptainEntity && SmallShips.isSmallShip(mount);
+    }
+
+    public void clearTarget() {
+        this.setTarget(null);
+        this.setLastHurtByPlayer(null);
+        this.setLastHurtMob(null);
+        this.setLastHurtByMob(null);
     }
 
     public static enum ArmPose {

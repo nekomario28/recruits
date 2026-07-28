@@ -152,6 +152,7 @@ public class VillagerEvents {
             abstractRecruit.copyPosition(villager);
 
             abstractRecruit.initSpawn();
+            AbstractRecruitEntity.applyVariantFromVillager(abstractRecruit, villager);
 
             for(int i = 0; i < villager.getInventory().getContainerSize(); i++){
                 abstractRecruit.getInventory().addItem(villager.getInventory().getItem(i));
@@ -182,6 +183,7 @@ public class VillagerEvents {
             nobleEntity.copyPosition(villager);
 
             nobleEntity.initSpawn();
+            AbstractRecruitEntity.applyVariantFromVillager(nobleEntity, villager);
             nobleEntity.setFollowState(0);
 
             for(int i = 0; i < villager.getInventory().getContainerSize(); i++){
@@ -217,6 +219,7 @@ public class VillagerEvents {
         if(abstractRecruit == null) return false;
 
         abstractRecruit.initSpawn();
+        AbstractRecruitEntity.applyVariantFromVillager(abstractRecruit, villager);
 
         Component name = villager.getCustomName();
 

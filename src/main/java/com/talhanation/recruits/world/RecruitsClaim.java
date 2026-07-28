@@ -35,7 +35,7 @@ public class RecruitsClaim {
     public RecruitsPlayerInfo playerInfo;
     public boolean isAdmin;
     public boolean isRemoved;
-    public static int MAX_SIZE = 50;
+    public static final int DEFAULT_MAX_SIZE = 50;
     public RecruitsClaim(String name, RecruitsFaction ownerFaction) {
         this.uuid = UUID.randomUUID();
         this.name = name;
@@ -49,6 +49,10 @@ public class RecruitsClaim {
         this.name = name;
         this.ownerFaction = ownerFaction;
         this.isAdmin = false;
+    }
+
+    public static RecruitsClaim fromNetwork(UUID uuid, String name, RecruitsFaction ownerFaction) {
+        return new RecruitsClaim(uuid, name, ownerFaction);
     }
 
     public RecruitsClaim(RecruitsFaction faction) {
@@ -67,9 +71,7 @@ public class RecruitsClaim {
         return this.center;
     }
     public void addChunk(ChunkPos chunkPos) {
-        if(claimedChunks.size() >= MAX_SIZE) return;
-
-        if (!claimedChunks.contains(chunkPos)) {
+        if (chunkPos != null && !claimedChunks.contains(chunkPos)) {
             claimedChunks.add(chunkPos);
         }
     }

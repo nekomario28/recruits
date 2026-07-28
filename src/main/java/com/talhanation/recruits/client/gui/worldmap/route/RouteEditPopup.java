@@ -1,9 +1,10 @@
-package com.talhanation.recruits.client.gui.worldmap;
+package com.talhanation.recruits.client.gui.worldmap.route;
 
 import com.talhanation.recruits.Main;
 import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.client.gui.player.PlayersList;
 import com.talhanation.recruits.client.gui.player.SelectPlayerScreen;
+import com.talhanation.recruits.client.gui.worldmap.WorldMapScreen;
 import com.talhanation.recruits.network.MessageTransferRoute;
 import com.talhanation.recruits.world.RecruitsRoute;
 import net.minecraft.client.Minecraft;
@@ -65,8 +66,7 @@ public class RouteEditPopup {
         int fieldY = py + 58;
         int fieldW = WIDTH - 16;
 
-        nameField = new EditBox(Minecraft.getInstance().font,
-                fieldX, fieldY + 3, fieldW, 8, Component.empty());
+        nameField = new EditBox(Minecraft.getInstance().font, fieldX, fieldY + 3, fieldW, 8, Component.empty());
         nameField.setMaxLength(32);
         nameField.setValue(route.getName());
         nameField.setFocused(true);
@@ -106,8 +106,8 @@ public class RouteEditPopup {
                     Main.SIMPLE_CHANNEL.sendToServer(new MessageTransferRoute(playerInfo.getUUID(), transferRoute));
                     parent.showMapNotice(TEXT_FEEDBACK_TRANSFER, 0xFFFFD36A);
                     Minecraft.getInstance().setScreen(parent);
-                }
-        ));
+                });
+        Minecraft.getInstance().setScreen(transferScreen);
     }
 
     private void deleteRoute() {
@@ -190,7 +190,7 @@ public class RouteEditPopup {
         int px = (parent.width - WIDTH) / 2;
         int py = (parent.height - HEIGHT) / 2;
 
-        // Click outside — close
+        // Click outside - close
         if (mouseX < px || mouseX > px + WIDTH || mouseY < py || mouseY > py + HEIGHT) {
             close();
             return true;
@@ -202,10 +202,25 @@ public class RouteEditPopup {
         int x = px + 8;
         int y = py + 58 + 46; // after hint, name field, and save hint
 
-        if (isOver(mouseX, mouseY, x, y, BTN_W_FULL, BTN_H)) { save();         return true; } y += BTN_H + 4;
-        if (isOver(mouseX, mouseY, x, y, BTN_W_FULL, BTN_H)) { openTransfer(); return true; } y += BTN_H + 4;
-        if (isOver(mouseX, mouseY, x, y, BTN_W_FULL, BTN_H)) { deleteRoute();  return true; } y += BTN_H + 4;
-        if (isOver(mouseX, mouseY, x, y, BTN_W_FULL, BTN_H)) { close();        return true; }
+        if (isOver(mouseX, mouseY, x, y, BTN_W_FULL, BTN_H)) {
+            save();
+            return true;
+        }
+        y += BTN_H + 4;
+        if (isOver(mouseX, mouseY, x, y, BTN_W_FULL, BTN_H)) {
+            openTransfer();
+            return true;
+        }
+        y += BTN_H + 4;
+        if (isOver(mouseX, mouseY, x, y, BTN_W_FULL, BTN_H)) {
+            deleteRoute();
+            return true;
+        }
+        y += BTN_H + 4;
+        if (isOver(mouseX, mouseY, x, y, BTN_W_FULL, BTN_H)) {
+            close();
+            return true;
+        }
 
         return true;
     }

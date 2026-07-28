@@ -1,6 +1,7 @@
-package com.talhanation.recruits.client.gui.worldmap;
+package com.talhanation.recruits.client.gui.worldmap.route;
 
 import com.talhanation.recruits.client.ClientManager;
+import com.talhanation.recruits.client.gui.worldmap.WorldMapScreen;
 import com.talhanation.recruits.world.RecruitsRoute;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -41,8 +42,7 @@ public class RouteNamePopup {
         int fieldY = py + 58;
         int fieldW = WIDTH - 16;
 
-        nameField = new EditBox(Minecraft.getInstance().font,
-                fieldX, fieldY + 3, fieldW, 8, Component.empty());
+        nameField = new EditBox(Minecraft.getInstance().font, fieldX, fieldY + 3, fieldW, 8, Component.empty());
         nameField.setMaxLength(32);
         nameField.setValue("");
         nameField.setFocused(true);
@@ -119,7 +119,7 @@ public class RouteNamePopup {
         int px = (parent.width - WIDTH) / 2;
         int py = (parent.height - HEIGHT) / 2;
 
-        // Click outside — close
+        // Click outside - close
         if (mouseX < px || mouseX > px + WIDTH || mouseY < py || mouseY > py + HEIGHT) {
             close();
             return true;

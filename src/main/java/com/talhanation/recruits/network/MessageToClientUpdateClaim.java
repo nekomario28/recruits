@@ -2,6 +2,8 @@ package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.client.api.ClientClaimEvent;
+import com.talhanation.recruits.client.gui.worldmap.claim.WorldMapClaimIndex;
+import com.talhanation.recruits.network.codec.ClaimNetworkCodec;
 import com.talhanation.recruits.world.RecruitsClaim;
 import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.nbt.CompoundTag;
@@ -19,7 +21,7 @@ public class MessageToClientUpdateClaim implements RecruitsMessage<MessageToClie
     }
 
     public MessageToClientUpdateClaim(RecruitsClaim claim) {
-        this.claimNBT = claim.toNBT();
+        this.claim = claim;
     }
 
     @Override
@@ -32,14 +34,21 @@ public class MessageToClientUpdateClaim implements RecruitsMessage<MessageToClie
     public void executeClientSide(RecruitsNetworkContext context) {
         this.updateOrAddClaimFromNBT(claimNBT);
     }
+
     @OnlyIn(Dist.CLIENT)
-    public void updateOrAddClaimFromNBT(CompoundTag claimNBT) {
-        RecruitsClaim newClaim = RecruitsClaim.fromNBT(claimNBT);
+    private void updateOrAddClaim(RecruitsClaim newClaim) {
+        if (newClaim == null) return;
+
+        if (newClaim.isRemoved) {
+            removeClaim(newClaim);
+            return;
+        }
 
         for (int i = 0; i < ClientManager.recruitsClaims.size(); i++) {
             RecruitsClaim existing = ClientManager.recruitsClaims.get(i);
             if (existing.getUUID().equals(newClaim.getUUID())) {
                 ClientManager.recruitsClaims.set(i, newClaim);
+                WorldMapClaimIndex.invalidate();
 
                 boolean isCurrentClaim = ClientManager.currentClaim != null
                         && ClientManager.currentClaim.getUUID().equals(newClaim.getUUID());
@@ -57,18 +66,36 @@ public class MessageToClientUpdateClaim implements RecruitsMessage<MessageToClie
         }
 
         ClientManager.recruitsClaims.add(newClaim);
+        WorldMapClaimIndex.invalidate();
         ClientManager.updateActiveSiege(newClaim);
         NeoForge.EVENT_BUS.post(
                 new ClientClaimEvent.DataUpdated(newClaim, false));
     }
+
+    @OnlyIn(Dist.CLIENT)
+    private void removeClaim(RecruitsClaim removedClaim) {
+        boolean wasCurrentClaim = ClientManager.currentClaim != null
+                && ClientManager.currentClaim.getUUID().equals(removedClaim.getUUID());
+
+        ClientManager.recruitsClaims.removeIf(
+                claim -> claim != null && claim.getUUID().equals(removedClaim.getUUID()));
+        ClientManager.activeSiegeClaims.remove(removedClaim.getUUID());
+        if (wasCurrentClaim) {
+            ClientManager.currentClaim = null;
+        }
+
+        WorldMapClaimIndex.invalidate();
+        MinecraftForge.EVENT_BUS.post(new ClientClaimEvent.DataUpdated(removedClaim, wasCurrentClaim));
+    }
+
     @Override
     public MessageToClientUpdateClaim fromBytes(FriendlyByteBuf buf) {
-        this.claimNBT = buf.readNbt();
+        this.claim = ClaimNetworkCodec.readNullableClaim(buf);
 
         return this;
     }
     @Override
     public void toBytes(FriendlyByteBuf buf) {
-        buf.writeNbt(this.claimNBT);
+        ClaimNetworkCodec.writeNullableClaim(buf, this.claim);
     }
 }
