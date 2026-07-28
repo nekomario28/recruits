@@ -51,15 +51,11 @@ jobs:
             src/main/java/com/talhanation/recruits/world/RecruitsClaimManager.java \
             src/main/java/com/talhanation/recruits/entities/ai/navigation/RecruitsPathNodeEvaluator.java
 
-          git diff --check
-          git diff --stat > "$OUT/restored-files-stat.txt"
-          git diff --name-status > "$OUT/restored-files.tsv"
-          test "$(git diff --name-only | wc -l)" -eq 3
+          git diff --cached --check
+          git diff --cached --stat > "$OUT/restored-files-stat.txt"
+          git diff --cached --name-status > "$OUT/restored-files.tsv"
+          test "$(git diff --cached --name-only | wc -l)" -eq 3
 
-          git add \
-            src/main/java/com/talhanation/recruits/commands/RecruitsAdminCommands.java \
-            src/main/java/com/talhanation/recruits/world/RecruitsClaimManager.java \
-            src/main/java/com/talhanation/recruits/entities/ai/navigation/RecruitsPathNodeEvaluator.java
           git commit -m 'Restore validated port implementations after upstream merge'
           git push origin "HEAD:$WORK_BRANCH"
           git rev-parse HEAD | tee "$OUT/restored-head.txt"
