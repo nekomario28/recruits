@@ -1,0 +1,143 @@
+name: Temporary Recruits Safe Logic Fixes V2
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-safe-fixes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out validation branch
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Apply exact safe fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="$RUNNER_TEMP/recruits-safe-fixes"
+          git clone --branch port/neoforge-1.21.1 https://github.com/nekomario28/recruits.git "$SOURCE"
+          cd "$SOURCE"
+          test "$(git rev-parse HEAD)" = "1bcf04c750b70285001163eeac7b1bc44fe11be0"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{label}: expected 1 match, found {count}')
+              return text.replace(old, new, 1)
+
+          recruit = Path('src/main/java/com/talhanation/recruits/entities/AbstractRecruitEntity.java')
+          text = recruit.read_text()
+          text = replace_once(
+              text,
+              'return player.getUUID() == this.getOwnerUUID() || player == this.getOwner();',
+              'return player.getUUID().equals(this.getOwnerUUID()) || player == this.getOwner();',
+              'owner UUID value comparison')
+          recruit.write_text(text)
+
+          events = Path('src/main/java/com/talhanation/recruits/VillagerEvents.java')
+          text = events.read_text()
+          text = replace_once(
+              text,
+              '            if(Minecraft.getInstance().player.getUUID().equals(player.getUUID())){',
+              '            Player clientPlayer = Minecraft.getInstance().player;\n'
+              '            if(clientPlayer != null && clientPlayer.getUUID().equals(player.getUUID())){',
+              'client player null guard')
+          text = replace_once(
+              text,
+              '    public void onVillagerJoinWorld(EntityJoinLevelEvent event) {\n'
+              '        Entity entity = event.getEntity();\n',
+              '    public void onVillagerJoinWorld(EntityJoinLevelEvent event) {\n'
+              '        Entity entity = event.getEntity();\n'
+              '        if (event.getLevel().isClientSide()) return;\n',
+              'server-side villager join gate')
+          text = replace_once(
+              text,
+              '    public void onVillagerLivingUpdate(EntityTickEvent.Post event) {\n'
+              '        Entity entity = event.getEntity();\n',
+              '    public void onVillagerLivingUpdate(EntityTickEvent.Post event) {\n'
+              '        Entity entity = event.getEntity();\n'
+              '        if (entity.getCommandSenderWorld().isClientSide()) return;\n',
+              'server-side villager tick gate')
+          text = replace_once(
+              text,
+              '                    int i = this.random.nextInt(6);\n'
+              '                    if (i == 1) createBowmanIronGolem(ironGolemEntity);\n'
+              '                    if (i == 2) createCrossbowmanIronGolem(ironGolemEntity);\n'
+              '                    else if (i == 0) createRecruitShieldmanIronGolem(ironGolemEntity);\n'
+              '                    else createRecruitIronGolem(ironGolemEntity);',
+              '                    int i = this.random.nextInt(6);\n'
+              '                    switch (i) {\n'
+              '                        case 0 -> createRecruitShieldmanIronGolem(ironGolemEntity);\n'
+              '                        case 1 -> createBowmanIronGolem(ironGolemEntity);\n'
+              '                        case 2 -> createCrossbowmanIronGolem(ironGolemEntity);\n'
+              '                        default -> createRecruitIronGolem(ironGolemEntity);\n'
+              '                    }',
+              'exclusive Iron Golem conversion')
+          text = replace_once(
+              text,
+              '        villager.remove(Entity.RemovalReason.DISCARDED);\n'
+              '        recruit.getInventory().setItem(8, Items.BREAD.getDefaultInstance());\n'
+              '        villager.remove(Entity.RemovalReason.DISCARDED);',
+              '        recruit.getInventory().setItem(8, Items.BREAD.getDefaultInstance());\n'
+              '        villager.remove(Entity.RemovalReason.DISCARDED);',
+              'duplicate Golem removal')
+          events.write_text(text)
+          PY
+          git diff --check
+          grep -F 'player.getUUID().equals(this.getOwnerUUID())' src/main/java/com/talhanation/recruits/entities/AbstractRecruitEntity.java
+          grep -F 'switch (i)' src/main/java/com/talhanation/recruits/VillagerEvents.java
+          grep -F 'if (event.getLevel().isClientSide()) return;' src/main/java/com/talhanation/recruits/VillagerEvents.java
+          grep -F 'if (entity.getCommandSenderWorld().isClientSide()) return;' src/main/java/com/talhanation/recruits/VillagerEvents.java
+
+      - name: Compile fixed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/recruits-safe-fixes"
+          chmod +x gradlew
+          ./gradlew --no-daemon clean compileJava --stacktrace 2>&1 | tee "$RUNNER_TEMP/recruits-safe-fixes-build.log"
+
+      - name: Commit fixed source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/recruits-safe-fixes"
+          git add src/main/java/com/talhanation/recruits/entities/AbstractRecruitEntity.java \
+                  src/main/java/com/talhanation/recruits/VillagerEvents.java
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'Fix ownership and villager conversion logic'
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/nekomario28/recruits.git"
+          git fetch origin port/neoforge-1.21.1
+          git rebase origin/port/neoforge-1.21.1
+          git push origin HEAD:port/neoforge-1.21.1
+          git rev-parse HEAD | tee "$RUNNER_TEMP/recruits-safe-fixes-head.txt"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recruits-safe-logic-fixes-v2
+          path: |
+            ${{ runner.temp }}/recruits-safe-fixes-build.log
+            ${{ runner.temp }}/recruits-safe-fixes-head.txt
+          if-no-files-found: warn
+          retention-days: 3
