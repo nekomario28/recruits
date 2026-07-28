@@ -1,6 +1,5 @@
 package com.talhanation.recruits;
 
-import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.config.RecruitsServerConfig;
 import com.talhanation.recruits.entities.*;
 import com.talhanation.recruits.entities.ai.villager.VillagerBecomeNobleGoal;
@@ -10,7 +9,6 @@ import com.talhanation.recruits.init.ModProfessions;
 import com.talhanation.recruits.world.RecruitsGroup;
 import com.talhanation.recruits.world.RecruitsHireTradesRegistry;
 import com.talhanation.recruits.world.RecruitsPatrolSpawn;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.network.chat.Component;
@@ -63,15 +61,6 @@ public class VillagerEvents {
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
         RecruitsHireTradesRegistry.registerTrades();
-    }
-    @SubscribeEvent
-    public void onPlayerJoiningServer(EntityJoinLevelEvent event){
-        if(event.getLevel().isClientSide() && event.getEntity() instanceof Player player){
-            Player clientPlayer = Minecraft.getInstance().player;
-            if(clientPlayer != null && clientPlayer.getUUID().equals(player.getUUID())){
-                RecruitsHireTradesRegistry.registerTrades();
-            }
-        }
     }
     @SubscribeEvent
     public void onVillagerJoinWorld(EntityJoinLevelEvent event) {
@@ -134,39 +123,26 @@ public class VillagerEvents {
 
     @SubscribeEvent
     public void onPlayerInteractEntity(PlayerInteractEvent.EntityInteract event) {
+        if (event.getLevel().isClientSide()) return;
+
         Player player = event.getEntity();
         Entity target = event.getTarget();
-
         if(player == null || target == null) return;
 
         Team targetTeam = target.getTeam();
         String teamID = null;
-
-        if (target instanceof ICanTradeEmbargo ihe) {
-            teamID = ihe.getEmbargoTeamID();
-        }
-        else if (target instanceof Villager && targetTeam != null) {
+        if (target instanceof ICanTradeEmbargo embargoTarget) {
+            teamID = embargoTarget.getEmbargoTeamID();
+        } else if (target instanceof Villager && targetTeam != null) {
             teamID = targetTeam.getName();
         }
 
         if (teamID == null || teamID.isEmpty()) return;
-
-        if (event.getLevel().isClientSide()) {
-
-            String embargoed = ClientManager.embargoMap.getOrDefault(player.getUUID(), "");
-
-            if (embargoed.contains(teamID)) {
-                event.setCanceled(true);
-            }
-        }
-        else {
-            // Server-side: gegen die authoritative Map prüfen
-            if (FactionEvents.recruitsDiplomacyManager.hasEmbargo(player.getUUID(), teamID)) {
-                event.setCanceled(true);
-                player.sendSystemMessage(
-                        Component.translatable("chat.recruits.text.embargoBlocked", target.getName().getString())
-                );
-            }
+        if (FactionEvents.recruitsDiplomacyManager.hasEmbargo(player.getUUID(), teamID)) {
+            event.setCanceled(true);
+            player.sendSystemMessage(
+                    Component.translatable("chat.recruits.text.embargoBlocked", target.getName().getString())
+            );
         }
     }
 

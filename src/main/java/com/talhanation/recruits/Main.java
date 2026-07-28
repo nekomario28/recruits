@@ -5,6 +5,7 @@ import com.talhanation.recruits.client.events.ClientEvent;
 import com.talhanation.recruits.client.events.CommandCategoryManager;
 import com.talhanation.recruits.client.events.KeyEvents;
 import com.talhanation.recruits.client.events.ClientPlayerEvents;
+import com.talhanation.recruits.client.events.ClientVillagerEvents;
 import com.talhanation.recruits.client.gui.commandscreen.CombatCategory;
 import com.talhanation.recruits.client.gui.commandscreen.MovementCategory;
 import com.talhanation.recruits.client.gui.commandscreen.OtherCategory;
@@ -245,6 +246,7 @@ public class Main {
     public void clientSetup(FMLClientSetupEvent event) {
         NeoForge.EVENT_BUS.register(new KeyEvents());
         NeoForge.EVENT_BUS.register(new ClientPlayerEvents());
+        NeoForge.EVENT_BUS.register(new ClientVillagerEvents());
         NeoForge.EVENT_BUS.register(new ClaimOverlayManager());
 
         CommandCategoryManager.register(new MovementCategory(), -2);
