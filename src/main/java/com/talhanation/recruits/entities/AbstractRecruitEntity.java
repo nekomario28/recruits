@@ -1187,7 +1187,7 @@ public abstract class AbstractRecruitEntity extends AbstractInventoryEntity{
     }
 
     public boolean isOwnedBy(Player player){
-       return player.getUUID() == this.getOwnerUUID() || player == this.getOwner();
+       return player.getUUID().equals(this.getOwnerUUID()) || player == this.getOwner();
     }
 
     ////////////////////////////////////ON FUNCTIONS////////////////////////////////////

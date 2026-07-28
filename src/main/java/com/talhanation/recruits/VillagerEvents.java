@@ -67,7 +67,8 @@ public class VillagerEvents {
     @SubscribeEvent
     public void onPlayerJoiningServer(EntityJoinLevelEvent event){
         if(event.getLevel().isClientSide() && event.getEntity() instanceof Player player){
-            if(Minecraft.getInstance().player.getUUID().equals(player.getUUID())){
+            Player clientPlayer = Minecraft.getInstance().player;
+            if(clientPlayer != null && clientPlayer.getUUID().equals(player.getUUID())){
                 RecruitsHireTradesRegistry.registerTrades();
             }
         }
@@ -75,6 +76,7 @@ public class VillagerEvents {
     @SubscribeEvent
     public void onVillagerJoinWorld(EntityJoinLevelEvent event) {
         Entity entity = event.getEntity();
+        if (event.getLevel().isClientSide()) return;
         if(!RecruitsServerConfig.NobleVillagerSpawn.get()) return;
 
         if (entity instanceof Villager villager) {
@@ -95,6 +97,7 @@ public class VillagerEvents {
     @SubscribeEvent
     public void onVillagerLivingUpdate(EntityTickEvent.Post event) {
         Entity entity = event.getEntity();
+        if (entity.getCommandSenderWorld().isClientSide()) return;
         if (entity instanceof Villager villager) {
             VillagerProfession profession = villager.getVillagerData().getProfession();
 
@@ -118,10 +121,12 @@ public class VillagerEvents {
                 }
                 else {
                     int i = this.random.nextInt(6);
-                    if (i == 1) createBowmanIronGolem(ironGolemEntity);
-                    if (i == 2) createCrossbowmanIronGolem(ironGolemEntity);
-                    else if (i == 0) createRecruitShieldmanIronGolem(ironGolemEntity);
-                    else createRecruitIronGolem(ironGolemEntity);
+                    switch (i) {
+                        case 0 -> createRecruitShieldmanIronGolem(ironGolemEntity);
+                        case 1 -> createBowmanIronGolem(ironGolemEntity);
+                        case 2 -> createCrossbowmanIronGolem(ironGolemEntity);
+                        default -> createRecruitIronGolem(ironGolemEntity);
+                    }
                 }
             }
         }
@@ -351,7 +356,6 @@ public class VillagerEvents {
 
         recruit.initSpawn();
 
-        villager.remove(Entity.RemovalReason.DISCARDED);
         recruit.getInventory().setItem(8, Items.BREAD.getDefaultInstance());
         villager.remove(Entity.RemovalReason.DISCARDED);
         villager.getCommandSenderWorld().addFreshEntity(recruit);
