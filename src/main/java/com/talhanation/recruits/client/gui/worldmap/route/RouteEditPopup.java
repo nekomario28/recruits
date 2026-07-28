@@ -106,7 +106,7 @@ public class RouteEditPopup {
                     Main.SIMPLE_CHANNEL.sendToServer(new MessageTransferRoute(playerInfo.getUUID(), transferRoute));
                     parent.showMapNotice(TEXT_FEEDBACK_TRANSFER, 0xFFFFD36A);
                     Minecraft.getInstance().setScreen(parent);
-                });
+                }));
     }
 
     private void deleteRoute() {
