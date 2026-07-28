@@ -17,6 +17,8 @@ import javax.annotation.Nullable;
 import java.util.*;
 import java.util.function.BooleanSupplier;
 public class RecruitsClaimManager {
+    private static final int CLAIMS_PER_SYNC_PACKET = 256;
+    private static final int CLAIM_CHUNKS_PER_SYNC_PACKET = 8192;
     private final Map<ChunkPos, RecruitsClaim> claims = new HashMap<>();
     private final Map<UUID, RecruitsClaim> activeSieges = new HashMap<>();
 
@@ -109,6 +111,15 @@ public class RecruitsClaimManager {
         return this.getClaim(new ChunkPos(chunkX, chunkZ));
     }
 
+    @Nullable
+    public RecruitsClaim getClaim(UUID claimId) {
+        if (claimId == null) return null;
+        for (RecruitsClaim claim : new HashSet<>(this.claims.values())) {
+            if (claimId.equals(claim.getUUID())) return claim;
+        }
+        return null;
+    }
+
     public List<RecruitsClaim> getAllClaims() {
         return new ArrayList<>(new HashSet<>(this.claims.values()));
     }
@@ -132,24 +143,70 @@ public class RecruitsClaimManager {
     }
 
     public void broadcastClaimsToAll(ServerLevel level) {
+        List<RecruitsClaim> allClaims = this.getAllClaims();
         for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
-            Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
-                    new MessageToClientUpdateClaims(
-                            this.getAllClaims(),
-                            RecruitsServerConfig.ClaimingCost.get(),
-                            RecruitsServerConfig.ChunkCost.get(),
-                            RecruitsServerConfig.CascadeThePriceOfClaims.get(),
-                            RecruitsServerConfig.AllowClaiming.get(),
-                            RecruitsServerConfig.FogOfWarEnabled.get(),
-                            FactionEvents.getCurrency()
-                    ));
+            this.sendClaimsTo(player, allClaims);
         }
+    }
+
+    public void sendClaimsTo(ServerPlayer player) {
+        if (player == null) return;
+        this.sendClaimsTo(player, this.getAllClaims());
+    }
+
+    private void sendClaimsTo(ServerPlayer player, List<RecruitsClaim> allClaims) {
+        if (allClaims == null || allClaims.isEmpty()) {
+            sendClaimBatch(player, List.of(), true, true);
+            return;
+        }
+        boolean resetClaims = true;
+        int batchChunkCount = 0;
+        List<RecruitsClaim> batch = new ArrayList<>();
+        for (RecruitsClaim claim : allClaims) {
+            int claimChunkCount = claim == null || claim.getClaimedChunks() == null ? 0 : claim.getClaimedChunks().size();
+            boolean batchFull = batch.size() >= CLAIMS_PER_SYNC_PACKET;
+            boolean chunkBudgetFull = !batch.isEmpty()
+                    && batchChunkCount + claimChunkCount > CLAIM_CHUNKS_PER_SYNC_PACKET;
+            if (batchFull || chunkBudgetFull) {
+                sendClaimBatch(player, batch, resetClaims, false);
+                resetClaims = false;
+                batch = new ArrayList<>();
+                batchChunkCount = 0;
+            }
+            batch.add(claim);
+            batchChunkCount += claimChunkCount;
+        }
+        if (!batch.isEmpty()) sendClaimBatch(player, batch, resetClaims, true);
+    }
+
+    private void sendClaimBatch(ServerPlayer player, List<RecruitsClaim> batch,
+                                boolean resetClaims, boolean syncComplete) {
+        Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
+                new MessageToClientUpdateClaims(
+                        batch,
+                        RecruitsServerConfig.ClaimingCost.get(),
+                        RecruitsServerConfig.ChunkCost.get(),
+                        RecruitsServerConfig.MaxClaimChunks.get(),
+                        RecruitsServerConfig.CascadeThePriceOfClaims.get(),
+                        RecruitsServerConfig.AllowClaiming.get(),
+                        RecruitsServerConfig.FogOfWarEnabled.get(),
+                        FactionEvents.getCurrency(),
+                        resetClaims,
+                        syncComplete));
     }
 
     public void broadcastClaimUpdateTo(RecruitsClaim claim, List<ServerPlayer> players) {
         if (claim == null || players == null || players.isEmpty()) return;
 
         for (ServerPlayer player : players) {
+            Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
+                    new MessageToClientUpdateClaim(claim));
+        }
+    }
+
+    public void broadcastClaimUpdateToAll(ServerLevel level, RecruitsClaim claim) {
+        if (level == null || claim == null) return;
+        for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
             Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
                     new MessageToClientUpdateClaim(claim));
         }

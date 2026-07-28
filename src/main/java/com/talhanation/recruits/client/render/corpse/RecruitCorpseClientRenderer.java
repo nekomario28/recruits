@@ -149,7 +149,7 @@ public final class RecruitCorpseClientRenderer {
             poseStack.mulPose(Axis.XP.rotationDegrees(90.0F));
             poseStack.translate(0.0D, -1.05D, -0.14375D);
             poseStack.scale(1.06F, 1.0F, 1.06F);
-        } else if (de.maxhenkel.corpse.Main.SERVER_CONFIG.spawnCorpseOnFace.get()) {
+        } else if (isCorpseOnFaceConfigured()) {
             poseStack.mulPose(Axis.XP.rotationDegrees(90.0F));
             poseStack.translate(0.0D, -1.0D, -0.125625D);
         } else {
@@ -160,4 +160,16 @@ public final class RecruitCorpseClientRenderer {
         renderer.render(recruit, 0.0F, partialTicks, poseStack, bufferSource, packedLight);
         poseStack.popPose();
     }
+    private static boolean isCorpseOnFaceConfigured() {
+        try {
+            Class<?> mainClass = Class.forName("de.maxhenkel.corpse.Main");
+            Object serverConfig = mainClass.getField("SERVER_CONFIG").get(null);
+            Object configValue = serverConfig.getClass().getField("spawnCorpseOnFace").get(serverConfig);
+            Object value = configValue.getClass().getMethod("get").invoke(configValue);
+            return value instanceof Boolean enabled && enabled;
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+            return false;
+        }
+    }
+
 }

@@ -38,11 +38,11 @@ public class MessageUpdateClaim implements RecruitsMessage<MessageUpdateClaim> {
 
     public void executeServerSide(RecruitsNetworkContext context){
         ServerPlayer player = context.getSender();
-        if (player == null || this.claimNBT == null || this.claimNBT.isEmpty()) return;
+        if (player == null || this.claim == null) return;
         if(!RecruitsServerConfig.AllowClaiming.get()) return;
         if(player.level().dimension() != Level.OVERWORLD) return;
 
-        RecruitsClaim requestedClaim = ClaimNetworkAuthority.readClaim(this.claimNBT);
+        RecruitsClaim requestedClaim = this.claim;
         if (requestedClaim == null || requestedClaim.getCenter() == null || requestedClaim.getClaimedChunks().isEmpty()) return;
 
         ServerLevel level = (ServerLevel) player.getCommandSenderWorld();
@@ -120,7 +120,7 @@ public class MessageUpdateClaim implements RecruitsMessage<MessageUpdateClaim> {
     }
 
     private static boolean addChunk(ServerPlayer player, RecruitsClaim currentClaim, RecruitsClaim requestedClaim, ChunkPos chunk) {
-        if (currentClaim.getClaimedChunks().size() >= RecruitsClaim.MAX_SIZE) return false;
+        if (currentClaim.getClaimedChunks().size() >= RecruitsServerConfig.MaxClaimChunks.get()) return false;
         if (!ClaimNetworkAuthority.isNearPlayer(player, chunk)) return false;
         if (ClaimEvents.recruitsClaimManager.getClaim(chunk) != null) return false;
         if (!hasNeighbor(currentClaim, chunk)) return false;

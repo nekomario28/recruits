@@ -3,23 +3,20 @@ package com.talhanation.recruits.network;
 import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.client.gui.worldmap.claim.WorldMapClaimIndex;
 import com.talhanation.recruits.network.codec.ClaimNetworkCodec;
-import com.talhanation.recruits.world.RecruitsClaim;
 import com.talhanation.recruits.network.compat.RecruitsMessage;
-import net.minecraft.nbt.CompoundTag;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
+import com.talhanation.recruits.world.RecruitsClaim;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.network.protocol.PacketFlow;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.api.distmarker.OnlyIn;
-import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 public class MessageToClientUpdateClaims implements RecruitsMessage<MessageToClientUpdateClaims> {
-    private CompoundTag claimsListNBT;
+    private List<RecruitsClaim> claims = Collections.emptyList();
     private int claimCost;
     private int chunkCost;
     private int maxClaimChunks;
@@ -33,21 +30,17 @@ public class MessageToClientUpdateClaims implements RecruitsMessage<MessageToCli
     public MessageToClientUpdateClaims() {
     }
 
-    public MessageToClientUpdateClaims(List<RecruitsClaim> list, int claimCost, int chunkCost, int maxClaimChunks, boolean cascadeOfCost, boolean allowClaiming, boolean fogOfWarEnabled, ItemStack currencyItemStack) {
-        this(list, claimCost, chunkCost, maxClaimChunks, cascadeOfCost, allowClaiming, fogOfWarEnabled, currencyItemStack, true, true);
+    public MessageToClientUpdateClaims(List<RecruitsClaim> list, int claimCost, int chunkCost,
+                                        int maxClaimChunks, boolean cascadeOfCost, boolean allowClaiming,
+                                        boolean fogOfWarEnabled, ItemStack currencyItemStack) {
+        this(list, claimCost, chunkCost, maxClaimChunks, cascadeOfCost, allowClaiming,
+                fogOfWarEnabled, currencyItemStack, true, true);
     }
 
-    public MessageToClientUpdateClaims(
-            List<RecruitsClaim> list,
-            int claimCost,
-            int chunkCost,
-            int maxClaimChunks,
-            boolean cascadeOfCost,
-            boolean allowClaiming,
-            boolean fogOfWarEnabled,
-            ItemStack currencyItemStack,
-            boolean resetClaims,
-            boolean syncComplete) {
+    public MessageToClientUpdateClaims(List<RecruitsClaim> list, int claimCost, int chunkCost,
+                                        int maxClaimChunks, boolean cascadeOfCost, boolean allowClaiming,
+                                        boolean fogOfWarEnabled, ItemStack currencyItemStack,
+                                        boolean resetClaims, boolean syncComplete) {
         this.claims = list == null ? Collections.emptyList() : new ArrayList<>(list);
         this.claimCost = claimCost;
         this.chunkCost = chunkCost;
@@ -66,9 +59,14 @@ public class MessageToClientUpdateClaims implements RecruitsMessage<MessageToCli
     }
 
     @Override
-    @OnlyIn(Dist.CLIENT)
     public void executeClientSide(RecruitsNetworkContext context) {
-        ClientManager.recruitsClaims = RecruitsClaim.getListFromNBT(claimsListNBT);
+        if (resetClaims) {
+            ClientManager.recruitsClaims = new ArrayList<>(this.claims);
+            ClientManager.activeSiegeClaims.clear();
+        } else {
+            ClientManager.recruitsClaims.addAll(this.claims);
+        }
+        WorldMapClaimIndex.invalidate();
         ClientManager.configValueClaimCost = this.claimCost;
         ClientManager.configValueChunkCost = this.chunkCost;
         ClientManager.configValueMaxClaimChunks = this.maxClaimChunks;
@@ -76,10 +74,7 @@ public class MessageToClientUpdateClaims implements RecruitsMessage<MessageToCli
         ClientManager.currencyItemStack = this.currencyItemStack;
         ClientManager.configValueIsClaimingAllowed = this.allowClaiming;
         ClientManager.configFogOfWarEnabled = this.fogOfWarEnabled;
-
-        if (syncComplete) {
-            ClientManager.rebuildActiveSieges();
-        }
+        if (syncComplete) ClientManager.rebuildActiveSieges();
     }
 
     @Override
@@ -104,11 +99,11 @@ public class MessageToClientUpdateClaims implements RecruitsMessage<MessageToCli
         buf.writeInt(this.chunkCost);
         buf.writeInt(this.maxClaimChunks);
         buf.writeBoolean(this.cascadeOfCost);
-        ItemStack.OPTIONAL_STREAM_CODEC.encode((RegistryFriendlyByteBuf) buf, this.currencyItemStack == null ? ItemStack.EMPTY : this.currencyItemStack);
+        ItemStack.OPTIONAL_STREAM_CODEC.encode((RegistryFriendlyByteBuf) buf,
+                this.currencyItemStack == null ? ItemStack.EMPTY : this.currencyItemStack);
         buf.writeBoolean(this.allowClaiming);
         buf.writeBoolean(this.fogOfWarEnabled);
         buf.writeBoolean(this.resetClaims);
         buf.writeBoolean(this.syncComplete);
     }
-
 }

@@ -1,7 +1,5 @@
 package com.talhanation.recruits.client.gui.component;
 
-import java.util.List;
-
 import com.mojang.blaze3d.platform.Lighting;
 import com.talhanation.recruits.world.RecruitsFaction;
 import net.minecraft.client.Minecraft;
@@ -87,7 +85,7 @@ public class BannerRenderer {
         if (faction == null || faction.getBanner() == null) {
             this.recruitsFaction = null;
             this.bannerItem = ItemStack.EMPTY;
-            this.resultBannerPatterns = List.of();
+            this.resultBannerPatterns = BannerPatternLayers.EMPTY;
             return;
         }
 

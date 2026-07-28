@@ -1,5 +1,7 @@
 package com.talhanation.recruits;
 
+import com.talhanation.recruits.network.compat.RecruitsPacketDistributor;
+
 import com.talhanation.recruits.config.RecruitsServerConfig;
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
 import com.talhanation.recruits.entities.VillagerNobleEntity;
@@ -82,7 +84,7 @@ public class ClaimEvents {
 
         if(event.getEntity() instanceof ServerPlayer player){
             ServerLevel overworld = player.getServer().overworld();
-            Main.SIMPLE_CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
+            Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
                     new MessageToClientWorldMapIdentity(RecruitsWorldSaveData.get(overworld).getWorldId()));
             recruitsClaimManager.sendClaimsTo(player);
         }

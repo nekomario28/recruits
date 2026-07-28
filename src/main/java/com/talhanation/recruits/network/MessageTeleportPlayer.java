@@ -28,7 +28,7 @@ public class MessageTeleportPlayer implements RecruitsMessage<MessageTeleportPla
 
     @Override
     public void executeServerSide(RecruitsNetworkContext context) {
-        Player player = context.getSender();
+        ServerPlayer player = context.getSender();
 
         if (player == null || this.pos == null) return;
         if (!player.isCreative() || !player.hasPermissions(2)) return;
