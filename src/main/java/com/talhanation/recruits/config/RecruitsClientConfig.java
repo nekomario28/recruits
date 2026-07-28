@@ -7,6 +7,10 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 import java.nio.file.Path;
 
 public class RecruitsClientConfig {
+    public enum MapPlayerIconStyle {
+        VANILLA,
+        OVERHAULED
+    }
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
     public static ModConfigSpec CLIENT;
     public static ModConfigSpec.BooleanValue PlayVillagerAmbientSound;
@@ -15,6 +19,12 @@ public class RecruitsClientConfig {
     public static ModConfigSpec.BooleanValue UpdateCheckerClientside;
     public static ModConfigSpec.BooleanValue DisableClaimGUIOverlay;
     public static ModConfigSpec.BooleanValue UpdateMapTiles;
+    public static ModConfigSpec.BooleanValue WorldMapUpdateAroundPlayer;
+    public static ModConfigSpec.BooleanValue WorldMapNightShading;
+    public static ModConfigSpec.BooleanValue WorldMapShowCoordinates;
+    public static ModConfigSpec.BooleanValue WorldMapClaimFill;
+    public static ModConfigSpec.BooleanValue RecruitsToasts;
+    public static ModConfigSpec.EnumValue<MapPlayerIconStyle> WorldMapPlayerIconStyle;
 
     static{
         BUILDER.comment("Recruits Config Client Side:").push("RecruitsClientSide");

@@ -1,5 +1,7 @@
 package com.talhanation.recruits.client.gui.component;
 
+import java.util.List;
+
 import com.mojang.blaze3d.platform.Lighting;
 import com.talhanation.recruits.world.RecruitsFaction;
 import net.minecraft.client.Minecraft;

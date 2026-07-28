@@ -1,5 +1,7 @@
 package com.talhanation.recruits.network;
 
+import net.minecraft.world.entity.player.Player;
+
 import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;

@@ -1,5 +1,7 @@
 package com.talhanation.recruits.world;
 
+import net.minecraft.world.level.entity.EntityTypeTest;
+
 import com.talhanation.recruits.FactionEvents;
 import com.talhanation.recruits.Main;
 import com.talhanation.recruits.config.RecruitsServerConfig;

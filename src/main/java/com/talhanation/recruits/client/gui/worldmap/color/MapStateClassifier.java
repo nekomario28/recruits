@@ -77,7 +77,7 @@ public final class MapStateClassifier {
         if (!state.getFluidState().isEmpty()) return true;
 
         Block block = state.getBlock();
-        if (block == Blocks.GRASS
+        if (block == Blocks.SHORT_GRASS
                 || block == Blocks.TORCH
                 || block == Blocks.GLASS
                 || block == Blocks.GLASS_PANE) {

@@ -6,6 +6,7 @@ import com.talhanation.recruits.entities.AbstractRecruitEntity;
 import com.talhanation.recruits.mixin.compat.corpse.CorpseEntityAccessor;
 import de.maxhenkel.corpse.corelib.death.Death;
 import de.maxhenkel.corpse.entities.CorpseEntity;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.server.level.ServerLevel;
@@ -85,7 +86,7 @@ public final class RecruitCorpseSpawner {
         ListTag items = new ListTag();
         // Corpse reads equipment by list index instead of the Slot tag, so empty positions must be preserved.
         for (int slot : EQUIPMENT_SLOTS) {
-            items.add(saveEquipmentItem(recruit.getInventory().getItem(slot)));
+            items.add(saveEquipmentItem(recruit.getInventory().getItem(slot), recruit.registryAccess()));
         }
         nbt.put("Equipment", items);
     }
@@ -96,7 +97,7 @@ public final class RecruitCorpseSpawner {
         for (int index = 0; index < slots.length; index++) {
             int inventorySlot = slots[index];
             int corpseSlot = index;
-            Optional<CompoundTag> itemTag = saveItem(recruit.getInventory().getItem(inventorySlot));
+            Optional<CompoundTag> itemTag = saveItem(recruit.getInventory().getItem(inventorySlot), recruit.registryAccess());
             itemTag.ifPresent(tag -> {
                 tag.putInt("Slot", corpseSlot);
                 items.add(tag);
@@ -106,22 +107,21 @@ public final class RecruitCorpseSpawner {
         nbt.put(key, items);
     }
 
-    private static Optional<CompoundTag> saveItem(ItemStack stack) {
+    private static Optional<CompoundTag> saveItem(ItemStack stack, HolderLookup.Provider registries) {
         if (stack.isEmpty()) {
             return Optional.empty();
         }
 
-        CompoundTag itemTag = new CompoundTag();
-        stack.save(itemTag);
+        CompoundTag itemTag = ((CompoundTag) stack.save(registries)).copy();
         if (!itemTag.contains("id")) {
             return Optional.empty();
         }
         return Optional.of(itemTag);
     }
 
-    private static CompoundTag saveEquipmentItem(ItemStack stack) {
+    private static CompoundTag saveEquipmentItem(ItemStack stack, HolderLookup.Provider registries) {
         if (!stack.isEmpty()) {
-            return saveItem(stack).orElseGet(RecruitCorpseSpawner::emptyItemTag);
+            return saveItem(stack, registries).orElseGet(RecruitCorpseSpawner::emptyItemTag);
         }
         return emptyItemTag();
     }

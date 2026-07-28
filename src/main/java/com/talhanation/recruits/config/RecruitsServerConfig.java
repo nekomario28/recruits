@@ -81,6 +81,7 @@ public class RecruitsServerConfig {
     public static ModConfigSpec.BooleanValue CascadeThePriceOfClaims;
     public static ModConfigSpec.IntValue ClaimingCost;
     public static ModConfigSpec.IntValue ChunkCost;
+    public static ModConfigSpec.IntValue MaxClaimChunks;
     public static ModConfigSpec.IntValue SiegeClaimsRecruitsAmount;
     public static ModConfigSpec.IntValue SiegeClaimsConquerTime;
     public static ModConfigSpec.BooleanValue NobleVillagerNeedsVillagers;
@@ -89,6 +90,7 @@ public class RecruitsServerConfig {
     public static ModConfigSpec.BooleanValue AllowClaiming;
     public static ModConfigSpec.BooleanValue FogOfWarEnabled;
     public static ModConfigSpec.BooleanValue RecruitsStarving;
+    public static ModConfigSpec.BooleanValue RecruitsUpdateHungerAndMorale;
     public static ModConfigSpec.BooleanValue SiegeRequiresOwnerOnline;
 
     public static ArrayList<String> TARGET_BLACKLIST = new ArrayList<>(
