@@ -1,4 +1,4 @@
-name: Temporary Recruits World Map Render Port
+name: Temporary Recruits World Map Signature Finish
 
 on:
   pull_request:
@@ -19,155 +19,43 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - name: Port world map render API
+      - name: Finish WorldMapScreen signatures
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/worldmap-render-port"
+          ROOT="$RUNNER_TEMP/worldmap-signature-finish"
           REPO="$ROOT/repo"
           OUT="$ROOT/evidence"
           mkdir -p "$OUT"
           exec > >(tee "$OUT/repair.log") 2>&1
-
           git clone --branch sync/neoforge-1.21.1-upstream-1.15.2 "https://x-access-token:${GH_TOKEN}@github.com/nekomario28/recruits.git" "$REPO"
           cd "$REPO"
-          test "$(git rev-parse HEAD)" = "04ee9f8aea8f25546a037b3dfc22a200efb31896"
+          test "$(git rev-parse HEAD)" = "b6b1fb71b3d5414d85d92a60ae42958ce632eb4f"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-
           python3 - <<'PY'
           from pathlib import Path
-          import re
-
-          # ResourceLocation factories used by 1.21.1.
+          p = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/WorldMapScreen.java')
+          s = p.read_text()
           replacements = {
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/claim/ClaimInfoMenu.java': [
-                  ('new ResourceLocation("recruits:textures/gui/image/enemy.png")',
-                   'ResourceLocation.parse("recruits:textures/gui/image/enemy.png")')],
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/render/WorldMapPlayerRenderer.java': [
-                  ('new ResourceLocation("textures/map/map_icons.png")',
-                   'ResourceLocation.parse("minecraft:textures/map/map_icons.png")')],
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteRenderer.java': [
-                  ('new ResourceLocation("textures/map/map_icons.png")',
-                   'ResourceLocation.parse("minecraft:textures/map/map_icons.png")')],
+              'renderBackground(guiGraphics);': 'renderBackground(guiGraphics, mouseX, mouseY, partialTicks);',
+              'mouseScrolled(width / 2.0, height / 2.0, 1);': 'mouseScrolled(width / 2.0, height / 2.0, 0.0, 1.0);',
+              'mouseScrolled(width / 2.0, height / 2.0, -1);': 'mouseScrolled(width / 2.0, height / 2.0, 0.0, -1.0);',
           }
-          for path, pairs in replacements.items():
-              p = Path(path)
-              s = p.read_text()
-              for old, new in pairs:
-                  if old not in s:
-                      raise SystemExit(f'missing ResourceLocation pattern in {path}: {old}')
-                  s = s.replace(old, new, 1)
-              p.write_text(s)
-
-          atlas = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/render/tile/WorldMapTextureAtlas.java')
-          s = atlas.read_text()
-          s, count = re.subn(
-              r'new ResourceLocation\(([^,\n]+),\s*([^\n]+)\)',
-              r'ResourceLocation.fromNamespaceAndPath(\1, \2)', s, count=1)
-          if count != 1:
-              raise SystemExit(f'world map atlas ResourceLocation replacements={count}')
-          atlas.write_text(s)
-
-          # VertexConsumer and BufferBuilder method names in 1.21.1.
-          vertex_files = [
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/render/MapFramebufferPass.java',
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/render/MapRenderUtil.java',
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/render/WorldMapPlayerRenderer.java',
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/render/WorldMapRenderer.java',
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteRenderer.java',
-          ]
-          method_map = {
-              '.vertex(': '.addVertex(',
-              '.uv(': '.setUv(',
-              '.color(': '.setColor(',
-              '.overlayCoords(': '.setOverlay(',
-              '.uv2(': '.setLight(',
-              '.normal(': '.setNormal(',
-          }
-          for path in vertex_files:
-              p = Path(path)
-              s = p.read_text()
-              for old, new in method_map.items():
-                  s = s.replace(old, new)
-              s = s.replace('.endVertex()', '')
-              p.write_text(s)
-
-          framebuffer = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/render/MapFramebufferPass.java')
-          s = framebuffer.read_text()
-          old = '''        BufferBuilder buffer = Tesselator.getInstance().getBuilder();
-                  buffer.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
-          '''
-          new = '''        BufferBuilder buffer = Tesselator.getInstance().begin(
-                          VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
-          '''
-          if old not in s:
-              raise SystemExit('framebuffer begin block missing')
-          s = s.replace(old, new, 1).replace('buffer.end()', 'buffer.buildOrThrow()', 1)
-          framebuffer.write_text(s)
-
-          renderer = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/render/WorldMapRenderer.java')
-          s = renderer.read_text()
-          old = '        BufferBuilder buffer = Tesselator.getInstance().getBuilder();\n'
-          if old not in s:
-              raise SystemExit('renderer stale builder declaration missing')
-          s = s.replace(old, '', 1)
-          old = '            buffer.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);\n'
-          new = '''            BufferBuilder buffer = Tesselator.getInstance().begin(
-                              VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
-          '''
-          if old not in s:
-              raise SystemExit('renderer begin call missing')
-          s = s.replace(old, new, 1).replace('buffer.end()', 'buffer.buildOrThrow()', 1)
-          renderer.write_text(s)
-
-          route = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteRenderer.java')
-          s = route.read_text()
-          old = '''            BufferBuilder buffer = Tesselator.getInstance().getBuilder();
-                      buffer.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
-          '''
-          new = '''            BufferBuilder buffer = Tesselator.getInstance().begin(
-                              VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
-          '''
-          if old not in s:
-              raise SystemExit('route begin block missing')
-          s = s.replace(old, new, 1).replace('buffer.end()', 'buffer.buildOrThrow()', 1)
-          route.write_text(s)
-
-          screen = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/WorldMapScreen.java')
-          s = screen.read_text()
-          old = '''    @Override
-              public void renderBackground(GuiGraphics guiGraphics) {
-                  guiGraphics.fill(0, 0, width, height, DARK_GRAY_BG);
-              }
-          '''
-          new = '''    @Override
-              public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-                  guiGraphics.fill(0, 0, width, height, DARK_GRAY_BG);
-              }
-          '''
-          if old not in s:
-              raise SystemExit('renderBackground old signature missing')
-          s = s.replace(old, new, 1)
-          old = 'public boolean mouseScrolled(double mouseX, double mouseY, double delta) {'
-          new = 'public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {'
-          if old not in s:
-              raise SystemExit('mouseScrolled old signature missing')
-          s = s.replace(old, new, 1).replace('camera.zoomAt(mouseX, mouseY, delta);',
-                                            'camera.zoomAt(mouseX, mouseY, scrollY);', 1)
-          screen.write_text(s)
+          for old, new in replacements.items():
+              if s.count(old) != 1:
+                  raise SystemExit(f'{old!r} count={s.count(old)}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
           PY
-
-          git add -A
+          git add src/main/java/com/talhanation/recruits/client/gui/worldmap/WorldMapScreen.java
           git diff --cached --check
           git diff --cached --name-status > "$OUT/repaired-files.tsv"
-          git diff --cached --stat > "$OUT/repair-stat.txt"
-          git commit -m 'Port world map rendering to Minecraft 1.21.1'
+          git commit -m 'Complete world map input signatures for 1.21.1'
           git push origin HEAD:sync/neoforge-1.21.1-upstream-1.15.2
           git rev-parse HEAD | tee "$OUT/repaired-head.txt"
-
           chmod +x gradlew
           set +e
           ./gradlew --no-daemon clean compileJava --stacktrace 2>&1 | tee "$OUT/compile.log"
@@ -179,7 +67,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: recruits-worldmap-render-port
-          path: ${{ runner.temp }}/worldmap-render-port/evidence
+          name: recruits-worldmap-signature-finish
+          path: ${{ runner.temp }}/worldmap-signature-finish/evidence
           if-no-files-found: warn
           retention-days: 7
