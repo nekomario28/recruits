@@ -1,4 +1,4 @@
-name: Temporary Recruits Common API Foundation
+name: Temporary Recruits Claim Sync Repair
 
 on:
   pull_request:
@@ -19,13 +19,13 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - name: Repair common API foundation
+      - name: Repair claim sync and compatibility boundaries
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$RUNNER_TEMP/common-api-foundation"
+          ROOT="$RUNNER_TEMP/claim-sync-repair"
           REPO="$ROOT/repo"
           OUT="$ROOT/evidence"
           mkdir -p "$OUT"
@@ -33,57 +33,257 @@ jobs:
 
           git clone --branch sync/neoforge-1.21.1-upstream-1.15.2 "https://x-access-token:${GH_TOKEN}@github.com/nekomario28/recruits.git" "$REPO"
           cd "$REPO"
-          test "$(git rev-parse HEAD)" = "953cab516d8418170fe03a1c5e0c6784521e5d84"
+          test "$(git rev-parse HEAD)" = "f65a9ceb6aa44960378cc200c65fe56ee9f3c8c8"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
 
-          cat > src/main/java/com/talhanation/recruits/world/RecruitsWorldSaveData.java <<'JAVA'
-          package com.talhanation.recruits.world;
+          cat > src/main/java/com/talhanation/recruits/network/MessageDeleteClaim.java <<'JAVA'
+          package com.talhanation.recruits.network;
 
-          import net.minecraft.core.HolderLookup;
-          import net.minecraft.nbt.CompoundTag;
+          import com.talhanation.recruits.ClaimEvents;
+          import com.talhanation.recruits.network.compat.RecruitsMessage;
+          import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
+          import com.talhanation.recruits.world.RecruitsClaim;
+          import net.minecraft.network.FriendlyByteBuf;
+          import net.minecraft.network.protocol.PacketFlow;
           import net.minecraft.server.level.ServerLevel;
-          import net.minecraft.util.datafix.DataFixTypes;
-          import net.minecraft.world.level.saveddata.SavedData;
+          import net.minecraft.server.level.ServerPlayer;
 
           import java.util.UUID;
 
-          public class RecruitsWorldSaveData extends SavedData {
-              private static final String FILE_ID = "recruitsWorldId";
-              private static final Factory<RecruitsWorldSaveData> FACTORY = new Factory<>(
-                      RecruitsWorldSaveData::new,
-                      RecruitsWorldSaveData::load,
-                      DataFixTypes.LEVEL);
+          public class MessageDeleteClaim implements RecruitsMessage<MessageDeleteClaim> {
+              private UUID claimId;
 
-              private UUID worldId;
-
-              public RecruitsWorldSaveData() {
-                  this.worldId = UUID.randomUUID();
-                  this.setDirty();
+              public MessageDeleteClaim() {
               }
 
-              private RecruitsWorldSaveData(UUID worldId) {
-                  this.worldId = worldId == null ? UUID.randomUUID() : worldId;
-                  if (worldId == null) this.setDirty();
-              }
-
-              public static RecruitsWorldSaveData get(ServerLevel level) {
-                  return level.getDataStorage().computeIfAbsent(FACTORY, FILE_ID);
-              }
-
-              public static RecruitsWorldSaveData load(CompoundTag nbt, HolderLookup.Provider registries) {
-                  UUID worldId = nbt.hasUUID("WorldId") ? nbt.getUUID("WorldId") : null;
-                  return new RecruitsWorldSaveData(worldId);
+              public MessageDeleteClaim(RecruitsClaim claim) {
+                  this.claimId = claim == null ? null : claim.getUUID();
               }
 
               @Override
-              public CompoundTag save(CompoundTag nbt, HolderLookup.Provider registries) {
-                  nbt.putUUID("WorldId", worldId);
-                  return nbt;
+              public PacketFlow getExecutingSide() {
+                  return PacketFlow.SERVERBOUND;
               }
 
-              public UUID getWorldId() {
-                  return worldId;
+              @Override
+              public void executeServerSide(RecruitsNetworkContext context) {
+                  ServerPlayer player = context.getSender();
+                  if (player == null || this.claimId == null) return;
+                  RecruitsClaim claim = ClaimNetworkAuthority.claimByUuid(this.claimId);
+                  if (claim == null || !ClaimNetworkAuthority.isCreativeAdmin(player)) return;
+
+                  ClaimEvents.recruitsClaimManager.removeClaim(claim);
+                  ClaimEvents.recruitsClaimManager.broadcastClaimsToAll((ServerLevel) player.getCommandSenderWorld());
+              }
+
+              @Override
+              public MessageDeleteClaim fromBytes(FriendlyByteBuf buf) {
+                  this.claimId = buf.readBoolean() ? buf.readUUID() : null;
+                  return this;
+              }
+
+              @Override
+              public void toBytes(FriendlyByteBuf buf) {
+                  buf.writeBoolean(this.claimId != null);
+                  if (this.claimId != null) buf.writeUUID(this.claimId);
+              }
+          }
+          JAVA
+
+          cat > src/main/java/com/talhanation/recruits/network/MessageToClientUpdateClaim.java <<'JAVA'
+          package com.talhanation.recruits.network;
+
+          import com.talhanation.recruits.client.ClientManager;
+          import com.talhanation.recruits.client.api.ClientClaimEvent;
+          import com.talhanation.recruits.client.gui.worldmap.claim.WorldMapClaimIndex;
+          import com.talhanation.recruits.network.codec.ClaimNetworkCodec;
+          import com.talhanation.recruits.network.compat.RecruitsMessage;
+          import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
+          import com.talhanation.recruits.world.RecruitsClaim;
+          import net.minecraft.network.FriendlyByteBuf;
+          import net.minecraft.network.protocol.PacketFlow;
+          import net.neoforged.neoforge.common.NeoForge;
+
+          public class MessageToClientUpdateClaim implements RecruitsMessage<MessageToClientUpdateClaim> {
+              private RecruitsClaim claim;
+
+              public MessageToClientUpdateClaim() {
+              }
+
+              public MessageToClientUpdateClaim(RecruitsClaim claim) {
+                  this.claim = claim;
+              }
+
+              @Override
+              public PacketFlow getExecutingSide() {
+                  return PacketFlow.CLIENTBOUND;
+              }
+
+              @Override
+              public void executeClientSide(RecruitsNetworkContext context) {
+                  updateOrAddClaim(this.claim);
+              }
+
+              private void updateOrAddClaim(RecruitsClaim newClaim) {
+                  if (newClaim == null) return;
+                  if (newClaim.isRemoved) {
+                      removeClaim(newClaim);
+                      return;
+                  }
+
+                  for (int i = 0; i < ClientManager.recruitsClaims.size(); i++) {
+                      RecruitsClaim existing = ClientManager.recruitsClaims.get(i);
+                      if (existing.getUUID().equals(newClaim.getUUID())) {
+                          ClientManager.recruitsClaims.set(i, newClaim);
+                          WorldMapClaimIndex.invalidate();
+                          boolean isCurrentClaim = ClientManager.currentClaim != null
+                                  && ClientManager.currentClaim.getUUID().equals(newClaim.getUUID());
+                          if (isCurrentClaim) ClientManager.currentClaim = newClaim;
+                          ClientManager.updateActiveSiege(newClaim);
+                          NeoForge.EVENT_BUS.post(new ClientClaimEvent.DataUpdated(newClaim, isCurrentClaim));
+                          return;
+                      }
+                  }
+
+                  ClientManager.recruitsClaims.add(newClaim);
+                  WorldMapClaimIndex.invalidate();
+                  ClientManager.updateActiveSiege(newClaim);
+                  NeoForge.EVENT_BUS.post(new ClientClaimEvent.DataUpdated(newClaim, false));
+              }
+
+              private void removeClaim(RecruitsClaim removedClaim) {
+                  boolean wasCurrentClaim = ClientManager.currentClaim != null
+                          && ClientManager.currentClaim.getUUID().equals(removedClaim.getUUID());
+                  ClientManager.recruitsClaims.removeIf(
+                          claim -> claim != null && claim.getUUID().equals(removedClaim.getUUID()));
+                  ClientManager.activeSiegeClaims.remove(removedClaim.getUUID());
+                  if (wasCurrentClaim) ClientManager.currentClaim = null;
+                  WorldMapClaimIndex.invalidate();
+                  NeoForge.EVENT_BUS.post(new ClientClaimEvent.DataUpdated(removedClaim, wasCurrentClaim));
+              }
+
+              @Override
+              public MessageToClientUpdateClaim fromBytes(FriendlyByteBuf buf) {
+                  this.claim = ClaimNetworkCodec.readNullableClaim(buf);
+                  return this;
+              }
+
+              @Override
+              public void toBytes(FriendlyByteBuf buf) {
+                  ClaimNetworkCodec.writeNullableClaim(buf, this.claim);
+              }
+          }
+          JAVA
+
+          cat > src/main/java/com/talhanation/recruits/network/MessageToClientUpdateClaims.java <<'JAVA'
+          package com.talhanation.recruits.network;
+
+          import com.talhanation.recruits.client.ClientManager;
+          import com.talhanation.recruits.client.gui.worldmap.claim.WorldMapClaimIndex;
+          import com.talhanation.recruits.network.codec.ClaimNetworkCodec;
+          import com.talhanation.recruits.network.compat.RecruitsMessage;
+          import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
+          import com.talhanation.recruits.world.RecruitsClaim;
+          import net.minecraft.network.FriendlyByteBuf;
+          import net.minecraft.network.RegistryFriendlyByteBuf;
+          import net.minecraft.network.protocol.PacketFlow;
+          import net.minecraft.world.item.ItemStack;
+
+          import java.util.ArrayList;
+          import java.util.Collections;
+          import java.util.List;
+
+          public class MessageToClientUpdateClaims implements RecruitsMessage<MessageToClientUpdateClaims> {
+              private List<RecruitsClaim> claims = Collections.emptyList();
+              private int claimCost;
+              private int chunkCost;
+              private int maxClaimChunks;
+              private boolean cascadeOfCost;
+              private boolean allowClaiming;
+              private boolean fogOfWarEnabled;
+              private ItemStack currencyItemStack;
+              private boolean resetClaims = true;
+              private boolean syncComplete = true;
+
+              public MessageToClientUpdateClaims() {
+              }
+
+              public MessageToClientUpdateClaims(List<RecruitsClaim> list, int claimCost, int chunkCost,
+                                                  int maxClaimChunks, boolean cascadeOfCost, boolean allowClaiming,
+                                                  boolean fogOfWarEnabled, ItemStack currencyItemStack) {
+                  this(list, claimCost, chunkCost, maxClaimChunks, cascadeOfCost, allowClaiming,
+                          fogOfWarEnabled, currencyItemStack, true, true);
+              }
+
+              public MessageToClientUpdateClaims(List<RecruitsClaim> list, int claimCost, int chunkCost,
+                                                  int maxClaimChunks, boolean cascadeOfCost, boolean allowClaiming,
+                                                  boolean fogOfWarEnabled, ItemStack currencyItemStack,
+                                                  boolean resetClaims, boolean syncComplete) {
+                  this.claims = list == null ? Collections.emptyList() : new ArrayList<>(list);
+                  this.claimCost = claimCost;
+                  this.chunkCost = chunkCost;
+                  this.maxClaimChunks = maxClaimChunks;
+                  this.cascadeOfCost = cascadeOfCost;
+                  this.currencyItemStack = currencyItemStack;
+                  this.allowClaiming = allowClaiming;
+                  this.fogOfWarEnabled = fogOfWarEnabled;
+                  this.resetClaims = resetClaims;
+                  this.syncComplete = syncComplete;
+              }
+
+              @Override
+              public PacketFlow getExecutingSide() {
+                  return PacketFlow.CLIENTBOUND;
+              }
+
+              @Override
+              public void executeClientSide(RecruitsNetworkContext context) {
+                  if (resetClaims) {
+                      ClientManager.recruitsClaims = new ArrayList<>(this.claims);
+                      ClientManager.activeSiegeClaims.clear();
+                  } else {
+                      ClientManager.recruitsClaims.addAll(this.claims);
+                  }
+                  WorldMapClaimIndex.invalidate();
+                  ClientManager.configValueClaimCost = this.claimCost;
+                  ClientManager.configValueChunkCost = this.chunkCost;
+                  ClientManager.configValueMaxClaimChunks = this.maxClaimChunks;
+                  ClientManager.configValueCascadeClaimCost = this.cascadeOfCost;
+                  ClientManager.currencyItemStack = this.currencyItemStack;
+                  ClientManager.configValueIsClaimingAllowed = this.allowClaiming;
+                  ClientManager.configFogOfWarEnabled = this.fogOfWarEnabled;
+                  if (syncComplete) ClientManager.rebuildActiveSieges();
+              }
+
+              @Override
+              public MessageToClientUpdateClaims fromBytes(FriendlyByteBuf buf) {
+                  this.claims = ClaimNetworkCodec.readClaimList(buf);
+                  this.claimCost = buf.readInt();
+                  this.chunkCost = buf.readInt();
+                  this.maxClaimChunks = buf.readInt();
+                  this.cascadeOfCost = buf.readBoolean();
+                  this.currencyItemStack = ItemStack.OPTIONAL_STREAM_CODEC.decode((RegistryFriendlyByteBuf) buf);
+                  this.allowClaiming = buf.readBoolean();
+                  this.fogOfWarEnabled = buf.readBoolean();
+                  this.resetClaims = buf.readBoolean();
+                  this.syncComplete = buf.readBoolean();
+                  return this;
+              }
+
+              @Override
+              public void toBytes(FriendlyByteBuf buf) {
+                  ClaimNetworkCodec.writeClaimList(buf, this.claims);
+                  buf.writeInt(this.claimCost);
+                  buf.writeInt(this.chunkCost);
+                  buf.writeInt(this.maxClaimChunks);
+                  buf.writeBoolean(this.cascadeOfCost);
+                  ItemStack.OPTIONAL_STREAM_CODEC.encode((RegistryFriendlyByteBuf) buf,
+                          this.currencyItemStack == null ? ItemStack.EMPTY : this.currencyItemStack);
+                  buf.writeBoolean(this.allowClaiming);
+                  buf.writeBoolean(this.fogOfWarEnabled);
+                  buf.writeBoolean(this.resetClaims);
+                  buf.writeBoolean(this.syncComplete);
               }
           }
           JAVA
@@ -103,101 +303,189 @@ jobs:
                   raise SystemExit(f'package declaration missing: {path}')
               p.write_text(s[:m.end()] + '\n' + line + s[m.end():])
 
-          add_import('src/main/java/com/talhanation/recruits/client/gui/component/BannerRenderer.java', 'java.util.List')
-          add_import('src/main/java/com/talhanation/recruits/network/MessageTeleportPlayer.java', 'net.minecraft.world.entity.player.Player')
-          add_import('src/main/java/com/talhanation/recruits/world/RecruitsPlayerUnitManager.java', 'net.minecraft.world.level.entity.EntityTypeTest')
+          update = Path('src/main/java/com/talhanation/recruits/network/MessageUpdateClaim.java')
+          s = update.read_text()
+          s = s.replace('if (player == null || this.claimNBT == null || this.claimNBT.isEmpty()) return;',
+                        'if (player == null || this.claim == null) return;', 1)
+          s = s.replace('RecruitsClaim requestedClaim = ClaimNetworkAuthority.readClaim(this.claimNBT);',
+                        'RecruitsClaim requestedClaim = this.claim;', 1)
+          s = s.replace('RecruitsClaim.MAX_SIZE', 'RecruitsServerConfig.MaxClaimChunks.get()')
+          update.write_text(s)
 
-          client = Path('src/main/java/com/talhanation/recruits/config/RecruitsClientConfig.java')
-          s = client.read_text()
-          class_marker = 'public class RecruitsClientConfig {\n'
-          enum_block = '''public class RecruitsClientConfig {
-              public enum MapPlayerIconStyle {
-                  VANILLA,
-                  OVERHAULED
+          teleport = Path('src/main/java/com/talhanation/recruits/network/MessageTeleportPlayer.java')
+          s = teleport.read_text().replace('Player player = context.getSender();', 'ServerPlayer player = context.getSender();', 1)
+          add_import(teleport, 'net.minecraft.server.level.ServerPlayer')
+          teleport.write_text(s)
+
+          banner = Path('src/main/java/com/talhanation/recruits/client/gui/component/BannerRenderer.java')
+          s = banner.read_text().replace('import java.util.List;\n\n', '')
+          s = s.replace('this.resultBannerPatterns = List.of();', 'this.resultBannerPatterns = BannerPatternLayers.EMPTY;', 1)
+          banner.write_text(s)
+
+          worker = Path('src/main/java/com/talhanation/recruits/compat/workers/IVillagerWorker.java')
+          s = worker.read_text()
+          marker = '   ItemStack getCustomProfessionItem();\n'
+          replacement = '''   ItemStack getCustomProfessionItem();
+             default ItemStack getCustomProfessionItem2() {
+                return ItemStack.EMPTY;
+             }
+          '''
+          if marker not in s:
+              raise SystemExit('worker profession item marker missing')
+          worker.write_text(s.replace(marker, replacement, 1))
+
+          events = Path('src/main/java/com/talhanation/recruits/ClaimEvents.java')
+          s = events.read_text().replace('PacketDistributor.PLAYER', 'RecruitsPacketDistributor.PLAYER')
+          events.write_text(s)
+          add_import(events, 'com.talhanation.recruits.network.compat.RecruitsPacketDistributor')
+
+          manager = Path('src/main/java/com/talhanation/recruits/world/RecruitsClaimManager.java')
+          s = manager.read_text()
+          s = s.replace('public class RecruitsClaimManager {\n', '''public class RecruitsClaimManager {
+              private static final int CLAIMS_PER_SYNC_PACKET = 256;
+              private static final int CLAIM_CHUNKS_PER_SYNC_PACKET = 8192;
+          ''', 1)
+          marker = '''    public List<RecruitsClaim> getAllClaims() {
+                  return new ArrayList<>(new HashSet<>(this.claims.values()));
               }
           '''
-          if class_marker not in s:
-              raise SystemExit('client config class marker missing')
-          s = s.replace(class_marker, enum_block, 1)
-          decl_marker = '    public static ModConfigSpec.BooleanValue UpdateMapTiles;\n'
-          decls = '''    public static ModConfigSpec.BooleanValue UpdateMapTiles;
-              public static ModConfigSpec.BooleanValue WorldMapUpdateAroundPlayer;
-              public static ModConfigSpec.BooleanValue WorldMapNightShading;
-              public static ModConfigSpec.BooleanValue WorldMapShowCoordinates;
-              public static ModConfigSpec.BooleanValue WorldMapClaimFill;
-              public static ModConfigSpec.BooleanValue RecruitsToasts;
-              public static ModConfigSpec.EnumValue<MapPlayerIconStyle> WorldMapPlayerIconStyle;
-          '''
-          if decl_marker not in s:
-              raise SystemExit('client config declaration marker missing')
-          s = s.replace(decl_marker, decls, 1)
-          client.write_text(s)
+          replacement = '''    @Nullable
+              public RecruitsClaim getClaim(UUID claimId) {
+                  if (claimId == null) return null;
+                  for (RecruitsClaim claim : new HashSet<>(this.claims.values())) {
+                      if (claimId.equals(claim.getUUID())) return claim;
+                  }
+                  return null;
+              }
 
-          server = Path('src/main/java/com/talhanation/recruits/config/RecruitsServerConfig.java')
-          s = server.read_text()
-          marker = '    public static ModConfigSpec.BooleanValue RecruitsStarving;\n'
-          replacement = '''    public static ModConfigSpec.BooleanValue RecruitsStarving;
-              public static ModConfigSpec.BooleanValue RecruitsUpdateHungerAndMorale;
+              public List<RecruitsClaim> getAllClaims() {
+                  return new ArrayList<>(new HashSet<>(this.claims.values()));
+              }
           '''
           if marker not in s:
-              raise SystemExit('server starving declaration marker missing')
+              raise SystemExit('manager getAllClaims marker missing')
           s = s.replace(marker, replacement, 1)
-          marker = '    public static ModConfigSpec.IntValue ChunkCost;\n'
-          replacement = '''    public static ModConfigSpec.IntValue ChunkCost;
-              public static ModConfigSpec.IntValue MaxClaimChunks;
+          old_broadcast = '''    public void broadcastClaimsToAll(ServerLevel level) {
+                  for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
+                      Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
+                              new MessageToClientUpdateClaims(
+                                      this.getAllClaims(),
+                                      RecruitsServerConfig.ClaimingCost.get(),
+                                      RecruitsServerConfig.ChunkCost.get(),
+                                      RecruitsServerConfig.CascadeThePriceOfClaims.get(),
+                                      RecruitsServerConfig.AllowClaiming.get(),
+                                      RecruitsServerConfig.FogOfWarEnabled.get(),
+                                      FactionEvents.getCurrency()
+                              ));
+                  }
+              }
           '''
-          if marker not in s:
-              raise SystemExit('server claim declaration marker missing')
-          s = s.replace(marker, replacement, 1)
-          server.write_text(s)
+          new_broadcast = '''    public void broadcastClaimsToAll(ServerLevel level) {
+                  List<RecruitsClaim> allClaims = this.getAllClaims();
+                  for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
+                      this.sendClaimsTo(player, allClaims);
+                  }
+              }
 
-          corpse = Path('src/main/java/com/talhanation/recruits/compat/corpse/RecruitCorpseSpawner.java')
+              public void sendClaimsTo(ServerPlayer player) {
+                  if (player == null) return;
+                  this.sendClaimsTo(player, this.getAllClaims());
+              }
+
+              private void sendClaimsTo(ServerPlayer player, List<RecruitsClaim> allClaims) {
+                  if (allClaims == null || allClaims.isEmpty()) {
+                      sendClaimBatch(player, List.of(), true, true);
+                      return;
+                  }
+                  boolean resetClaims = true;
+                  int batchChunkCount = 0;
+                  List<RecruitsClaim> batch = new ArrayList<>();
+                  for (RecruitsClaim claim : allClaims) {
+                      int claimChunkCount = claim == null || claim.getClaimedChunks() == null ? 0 : claim.getClaimedChunks().size();
+                      boolean batchFull = batch.size() >= CLAIMS_PER_SYNC_PACKET;
+                      boolean chunkBudgetFull = !batch.isEmpty()
+                              && batchChunkCount + claimChunkCount > CLAIM_CHUNKS_PER_SYNC_PACKET;
+                      if (batchFull || chunkBudgetFull) {
+                          sendClaimBatch(player, batch, resetClaims, false);
+                          resetClaims = false;
+                          batch = new ArrayList<>();
+                          batchChunkCount = 0;
+                      }
+                      batch.add(claim);
+                      batchChunkCount += claimChunkCount;
+                  }
+                  if (!batch.isEmpty()) sendClaimBatch(player, batch, resetClaims, true);
+              }
+
+              private void sendClaimBatch(ServerPlayer player, List<RecruitsClaim> batch,
+                                          boolean resetClaims, boolean syncComplete) {
+                  Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
+                          new MessageToClientUpdateClaims(
+                                  batch,
+                                  RecruitsServerConfig.ClaimingCost.get(),
+                                  RecruitsServerConfig.ChunkCost.get(),
+                                  RecruitsServerConfig.MaxClaimChunks.get(),
+                                  RecruitsServerConfig.CascadeThePriceOfClaims.get(),
+                                  RecruitsServerConfig.AllowClaiming.get(),
+                                  RecruitsServerConfig.FogOfWarEnabled.get(),
+                                  FactionEvents.getCurrency(),
+                                  resetClaims,
+                                  syncComplete));
+              }
+          '''
+          if old_broadcast not in s:
+              raise SystemExit('manager broadcast block missing')
+          s = s.replace(old_broadcast, new_broadcast, 1)
+          insert_marker = '''    public void broadcastClaimUpdateTo(RecruitsClaim claim, List<ServerPlayer> players) {
+                  if (claim == null || players == null || players.isEmpty()) return;
+
+                  for (ServerPlayer player : players) {
+                      Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
+                              new MessageToClientUpdateClaim(claim));
+                  }
+              }
+          '''
+          insert_replacement = insert_marker + '''
+              public void broadcastClaimUpdateToAll(ServerLevel level, RecruitsClaim claim) {
+                  if (level == null || claim == null) return;
+                  for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
+                      Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
+                              new MessageToClientUpdateClaim(claim));
+                  }
+              }
+          '''
+          if insert_marker not in s:
+              raise SystemExit('manager incremental update block missing')
+          manager.write_text(s.replace(insert_marker, insert_replacement, 1))
+
+          corpse = Path('src/main/java/com/talhanation/recruits/client/render/corpse/RecruitCorpseClientRenderer.java')
           s = corpse.read_text()
-          s = s.replace('import net.minecraft.nbt.CompoundTag;\n', 'import net.minecraft.core.HolderLookup;\nimport net.minecraft.nbt.CompoundTag;\n', 1)
-          s = s.replace('items.add(saveEquipmentItem(recruit.getInventory().getItem(slot)));',
-                        'items.add(saveEquipmentItem(recruit.getInventory().getItem(slot), recruit.registryAccess()));')
-          s = s.replace('Optional<CompoundTag> itemTag = saveItem(recruit.getInventory().getItem(inventorySlot));',
-                        'Optional<CompoundTag> itemTag = saveItem(recruit.getInventory().getItem(inventorySlot), recruit.registryAccess());')
-          s = s.replace('private static Optional<CompoundTag> saveItem(ItemStack stack) {',
-                        'private static Optional<CompoundTag> saveItem(ItemStack stack, HolderLookup.Provider registries) {')
-          old = '''        CompoundTag itemTag = new CompoundTag();
-                  stack.save(itemTag);
+          s = s.replace('} else if (de.maxhenkel.corpse.Main.SERVER_CONFIG.spawnCorpseOnFace.get()) {',
+                        '} else if (isCorpseOnFaceConfigured()) {', 1)
+          helper = '''
+              private static boolean isCorpseOnFaceConfigured() {
+                  try {
+                      Class<?> mainClass = Class.forName("de.maxhenkel.corpse.Main");
+                      Object serverConfig = mainClass.getField("SERVER_CONFIG").get(null);
+                      Object configValue = serverConfig.getClass().getField("spawnCorpseOnFace").get(serverConfig);
+                      Object value = configValue.getClass().getMethod("get").invoke(configValue);
+                      return value instanceof Boolean enabled && enabled;
+                  } catch (ReflectiveOperationException | LinkageError ignored) {
+                      return false;
+                  }
+              }
           '''
-          new = '''        CompoundTag itemTag = ((CompoundTag) stack.save(registries)).copy();
-          '''
-          if old not in s:
-              raise SystemExit('old ItemStack save body missing')
-          s = s.replace(old, new, 1)
-          s = s.replace('private static CompoundTag saveEquipmentItem(ItemStack stack) {',
-                        'private static CompoundTag saveEquipmentItem(ItemStack stack, HolderLookup.Provider registries) {')
-          s = s.replace('return saveItem(stack).orElseGet(RecruitCorpseSpawner::emptyItemTag);',
-                        'return saveItem(stack, registries).orElseGet(RecruitCorpseSpawner::emptyItemTag);')
-          corpse.write_text(s)
-
-          classifier = Path('src/main/java/com/talhanation/recruits/client/gui/worldmap/color/MapStateClassifier.java')
-          s = classifier.read_text().replace('block == Blocks.GRASS', 'block == Blocks.SHORT_GRASS')
-          classifier.write_text(s)
-
-          popup_fields = {
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteNamePopup.java': 'nameField',
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/RouteEditPopup.java': 'nameField',
-              'src/main/java/com/talhanation/recruits/client/gui/worldmap/route/WaypointEditPopup.java': 'waitField',
-          }
-          for path, field in popup_fields.items():
-              p = Path(path)
-              s = p.read_text()
-              pattern = rf'\n\s*if \(visible && {field} != null\) {field}\.tick\(\);'
-              s, count = re.subn(pattern, '', s, count=1)
-              if count != 1:
-                  raise SystemExit(f'EditBox tick call count for {path}: {count}')
-              p.write_text(s)
+          end_marker = '\n}\n'
+          if not s.endswith(end_marker):
+              raise SystemExit('corpse renderer class end missing')
+          corpse.write_text(s[:-len(end_marker)] + helper + end_marker)
           PY
 
           git add -A
           git diff --cached --check
           git diff --cached --name-status > "$OUT/repaired-files.tsv"
           git diff --cached --stat > "$OUT/repair-stat.txt"
-          git commit -m 'Port common configuration and save APIs to 1.21.1'
+          git commit -m 'Repair claim synchronization and compatibility contracts'
           git push origin HEAD:sync/neoforge-1.21.1-upstream-1.15.2
           git rev-parse HEAD | tee "$OUT/repaired-head.txt"
 
@@ -212,7 +500,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: recruits-common-api-foundation
-          path: ${{ runner.temp }}/common-api-foundation/evidence
+          name: recruits-claim-sync-repair
+          path: ${{ runner.temp }}/claim-sync-repair/evidence
           if-no-files-found: warn
           retention-days: 7
