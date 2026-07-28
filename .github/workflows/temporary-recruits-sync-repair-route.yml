@@ -1,4 +1,4 @@
-name: Temporary Recruits API Repair Diagnostic
+name: Temporary Recruits World Map Alignment
 
 on:
   pull_request:
@@ -6,55 +6,62 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose:
+  align:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Diagnose exact sync tree
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Align exact upstream world map tree
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          set -u
-          ROOT="$RUNNER_TEMP/api-diagnostic"
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/worldmap-align"
           REPO="$ROOT/repo"
           OUT="$ROOT/evidence"
           mkdir -p "$OUT"
-          {
-            git clone --branch sync/neoforge-1.21.1-upstream-1.15.2 https://github.com/nekomario28/recruits.git "$REPO"
-            cd "$REPO"
-            echo "head=$(git rev-parse HEAD)"
-            python3 - <<'PY'
-            from pathlib import Path
-            import re
-            root = Path('src/main/java')
-            wanted = ['ChunkTileManager', 'WorldMapContextMenu', 'ClaimInfoMenu', 'RouteNamePopup', 'RouteEditPopup', 'WaypointEditPopup']
-            found = {}
-            for p in root.rglob('*.java'):
-                text = p.read_text(errors='ignore')
-                pm = re.search(r'^package\s+([^;]+);', text, re.M)
-                if not pm:
-                    continue
-                for name in wanted:
-                    if re.search(r'\b(class|record|interface)\s+' + re.escape(name) + r'\b', text):
-                        found[name] = (pm.group(1) + '.' + name, str(p))
-            for name in wanted:
-                print(name, found.get(name))
+          exec > >(tee "$OUT/align.log") 2>&1
 
-            p = Path('src/main/java/com/talhanation/recruits/client/events/ClientEvent.java')
-            s = p.read_text()
-            pattern = r'\n\s*@SubscribeEvent\n\s*public static void textureStitchCompleted\(TextureStitchEvent\.Post event\) \{\n\s*if \(TextureAtlas\.LOCATION_BLOCKS\.equals\(event\.getAtlas\(\)\.location\(\)\)\) \{\n\s*WorldMapCacheManager\.getInstance\(\)\.onClientBlockAtlasStitched\(\);\n\s*\}\n\s*\}\n'
-            print('texture_handler_matches', len(re.findall(pattern, s)))
-            print('client_mixin_exists', Path('src/main/java/com/talhanation/recruits/mixin/client/ClientLevelMixin.java').exists())
-            PY
-          } > "$OUT/diagnostic.log" 2>&1
-          cat "$OUT/diagnostic.log"
-      - name: Upload diagnostic
+          git clone --branch sync/neoforge-1.21.1-upstream-1.15.2 "https://x-access-token:${GH_TOKEN}@github.com/nekomario28/recruits.git" "$REPO"
+          cd "$REPO"
+          test "$(git rev-parse HEAD)" = "8c6e6e2af59cd570b279a516a144733421a81490"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git remote add upstream https://github.com/talhanation/recruits.git
+          git fetch --no-tags upstream cff03e085d65653406a8b6ddcdd0ebff615c3e48
+
+          git restore --source=cff03e085d65653406a8b6ddcdd0ebff615c3e48 --staged --worktree -- \
+            src/main/java/com/talhanation/recruits/client/gui/worldmap
+          git diff --cached --check
+          git diff --cached --name-status > "$OUT/aligned-files.tsv"
+          git diff --cached --stat > "$OUT/alignment-stat.txt"
+          test -n "$(git diff --cached --name-only)"
+
+          git commit -m 'Align world map tree with upstream 1.15.2'
+          git push origin HEAD:sync/neoforge-1.21.1-upstream-1.15.2
+          git rev-parse HEAD | tee "$OUT/aligned-head.txt"
+
+          chmod +x gradlew
+          set +e
+          ./gradlew --no-daemon clean compileJava --stacktrace 2>&1 | tee "$OUT/compile.log"
+          RC=${PIPESTATUS[0]}
+          set -e
+          echo "compile_exit_code=$RC" > "$OUT/compile-result.txt"
+          grep -E '^.*error:|FAILURE: Build failed|BUILD SUCCESSFUL' "$OUT/compile.log" > "$OUT/compile-key-lines.txt" || true
+      - name: Upload evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: recruits-api-repair-diagnostic
-          path: ${{ runner.temp }}/api-diagnostic/evidence
-          if-no-files-found: error
+          name: recruits-worldmap-alignment
+          path: ${{ runner.temp }}/worldmap-align/evidence
+          if-no-files-found: warn
           retention-days: 7
