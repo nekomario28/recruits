@@ -2,18 +2,17 @@ package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.entities.MessengerEntity;
 import com.talhanation.recruits.world.RecruitsPlayerInfo;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessageSendMessenger implements Message<MessageSendMessenger> {
+public class MessageSendMessenger implements RecruitsMessage<MessageSendMessenger> {
 
     private UUID recruit;
     private boolean start;
@@ -37,31 +36,27 @@ public class MessageSendMessenger implements Message<MessageSendMessenger> {
 
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        player.getCommandSenderWorld().getEntitiesOfClass(
-                MessengerEntity.class,
-                player.getBoundingBox().inflate(16D),
-                (messenger) -> messenger.getUUID().equals(this.recruit)
-        ).forEach((messenger) -> {
-            if (messenger.getUUID().equals(this.recruit)){
+        RecruitCommandTargetResolver.resolveOwnedRecruit(player, this.recruit, 16D, false)
+                .filter(messenger -> messenger instanceof MessengerEntity)
+                .map(messenger -> (MessengerEntity) messenger)
+                .ifPresent((messenger) -> {
+                    messenger.setMessage(this.message);
 
-                messenger.setMessage(this.message);
+                    if(!this.nbt.isEmpty()){
+                        messenger.setTargetPlayerInfo(RecruitsPlayerInfo.getFromNBT(this.nbt));
+                    }
 
-                if(!this.nbt.isEmpty()){
-                    messenger.setTargetPlayerInfo(RecruitsPlayerInfo.getFromNBT(this.nbt));
-                }
-
-                if(start){
-                    messenger.setIsTreatyMessenger(false);
-                    messenger.start();
-                }
-            }
-        });
+                    if(start){
+                        messenger.setIsTreatyMessenger(false);
+                        messenger.start();
+                    }
+                });
     }
 
     public MessageSendMessenger fromBytes(FriendlyByteBuf buf) {

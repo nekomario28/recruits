@@ -1,17 +1,15 @@
 package com.talhanation.recruits.network;
 
-import com.talhanation.recruits.entities.AbstractLeaderEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessagePatrolLeaderSetWaitTime implements Message<MessagePatrolLeaderSetWaitTime> {
+public class MessagePatrolLeaderSetWaitTime implements RecruitsMessage<MessagePatrolLeaderSetWaitTime> {
 
     private UUID recruit;
     private int time;
@@ -24,17 +22,14 @@ public class MessagePatrolLeaderSetWaitTime implements Message<MessagePatrolLead
         this.time = time;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        player.getCommandSenderWorld().getEntitiesOfClass(
-                AbstractLeaderEntity.class,
-                player.getBoundingBox().inflate(100.0D),
-                (leader) -> leader.getUUID().equals(this.recruit)
-        ).forEach((leader) -> leader.setWaitTimeInMin(this.time));
+        RecruitCommandTargetResolver.resolveOwnedLeader(player, this.recruit, 100.0D)
+                .ifPresent((leader) -> leader.setWaitTimeInMin(Math.max(0, this.time)));
     }
 
     public MessagePatrolLeaderSetWaitTime fromBytes(FriendlyByteBuf buf) {

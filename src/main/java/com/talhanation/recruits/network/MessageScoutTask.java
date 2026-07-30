@@ -1,16 +1,16 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.entities.ScoutEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessageScoutTask implements Message<MessageScoutTask> {
+public class MessageScoutTask implements RecruitsMessage<MessageScoutTask> {
 
     private UUID recruit;
     private int state;
@@ -22,20 +22,19 @@ public class MessageScoutTask implements Message<MessageScoutTask> {
         this.state = state;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context){
-        List<ScoutEntity> list = Objects.requireNonNull(context.getSender()).getCommandSenderWorld().getEntitiesOfClass(ScoutEntity.class, context.getSender().getBoundingBox().inflate(16D));
-        for (ScoutEntity scoutEntity : list){
-
-            if (scoutEntity.getUUID().equals(this.recruit)){
-
-                scoutEntity.startTask(ScoutEntity.State.fromIndex(state));
-                break;
-            }
+    public void executeServerSide(RecruitsNetworkContext context){
+        ServerPlayer player = Objects.requireNonNull(context.getSender());
+        if (this.state < ScoutEntity.State.IDLE.getIndex() || this.state > ScoutEntity.State.SEARCHING_LOST_RECRUITS.getIndex()) {
+            return;
         }
+        RecruitCommandTargetResolver.resolveOwnedRecruit(player, this.recruit, 16D, false)
+                .filter(ScoutEntity.class::isInstance)
+                .map(ScoutEntity.class::cast)
+                .ifPresent((scout) -> scout.startTask(ScoutEntity.State.fromIndex(state)));
     }
     public MessageScoutTask fromBytes(FriendlyByteBuf buf) {
         this.recruit = buf.readUUID();

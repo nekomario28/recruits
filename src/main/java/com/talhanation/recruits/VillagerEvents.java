@@ -1,6 +1,5 @@
 package com.talhanation.recruits;
 
-import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.config.RecruitsServerConfig;
 import com.talhanation.recruits.entities.*;
 import com.talhanation.recruits.entities.ai.villager.VillagerBecomeNobleGoal;
@@ -10,7 +9,6 @@ import com.talhanation.recruits.init.ModProfessions;
 import com.talhanation.recruits.world.RecruitsGroup;
 import com.talhanation.recruits.world.RecruitsHireTradesRegistry;
 import com.talhanation.recruits.world.RecruitsPatrolSpawn;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.network.chat.Component;
@@ -27,15 +25,16 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.trading.MerchantOffer;
+import net.minecraft.world.item.trading.ItemCost;
 import net.minecraft.world.level.ItemLike;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.scores.Team;
-import net.minecraftforge.event.entity.EntityJoinLevelEvent;
-import net.minecraftforge.event.entity.living.LivingEvent;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.event.server.ServerStartingEvent;
-import net.minecraftforge.event.village.VillagerTradesEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.tick.EntityTickEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.village.VillagerTradesEvent;
+import net.neoforged.bus.api.SubscribeEvent;
 
 
 import java.util.*;
@@ -64,16 +63,9 @@ public class VillagerEvents {
         RecruitsHireTradesRegistry.registerTrades();
     }
     @SubscribeEvent
-    public void onPlayerJoiningServer(EntityJoinLevelEvent event){
-        if(event.getLevel().isClientSide() && event.getEntity() instanceof Player player){
-            if(Minecraft.getInstance().player.getUUID().equals(player.getUUID())){
-                RecruitsHireTradesRegistry.registerTrades();
-            }
-        }
-    }
-    @SubscribeEvent
     public void onVillagerJoinWorld(EntityJoinLevelEvent event) {
         Entity entity = event.getEntity();
+        if (event.getLevel().isClientSide()) return;
         if(!RecruitsServerConfig.NobleVillagerSpawn.get()) return;
 
         if (entity instanceof Villager villager) {
@@ -92,8 +84,9 @@ public class VillagerEvents {
     };
 
     @SubscribeEvent
-    public void onVillagerLivingUpdate(LivingEvent.LivingTickEvent event) {
+    public void onVillagerLivingUpdate(EntityTickEvent.Post event) {
         Entity entity = event.getEntity();
+        if (entity.getCommandSenderWorld().isClientSide()) return;
         if (entity instanceof Villager villager) {
             VillagerProfession profession = villager.getVillagerData().getProfession();
 
@@ -117,10 +110,12 @@ public class VillagerEvents {
                 }
                 else {
                     int i = this.random.nextInt(6);
-                    if (i == 1) createBowmanIronGolem(ironGolemEntity);
-                    if (i == 2) createCrossbowmanIronGolem(ironGolemEntity);
-                    else if (i == 0) createRecruitShieldmanIronGolem(ironGolemEntity);
-                    else createRecruitIronGolem(ironGolemEntity);
+                    switch (i) {
+                        case 0 -> createRecruitShieldmanIronGolem(ironGolemEntity);
+                        case 1 -> createBowmanIronGolem(ironGolemEntity);
+                        case 2 -> createCrossbowmanIronGolem(ironGolemEntity);
+                        default -> createRecruitIronGolem(ironGolemEntity);
+                    }
                 }
             }
         }
@@ -128,39 +123,26 @@ public class VillagerEvents {
 
     @SubscribeEvent
     public void onPlayerInteractEntity(PlayerInteractEvent.EntityInteract event) {
+        if (event.getLevel().isClientSide()) return;
+
         Player player = event.getEntity();
         Entity target = event.getTarget();
-
         if(player == null || target == null) return;
 
         Team targetTeam = target.getTeam();
         String teamID = null;
-
-        if (target instanceof ICanTradeEmbargo ihe) {
-            teamID = ihe.getEmbargoTeamID();
-        }
-        else if (target instanceof Villager && targetTeam != null) {
+        if (target instanceof ICanTradeEmbargo embargoTarget) {
+            teamID = embargoTarget.getEmbargoTeamID();
+        } else if (target instanceof Villager && targetTeam != null) {
             teamID = targetTeam.getName();
         }
 
         if (teamID == null || teamID.isEmpty()) return;
-
-        if (event.getLevel().isClientSide()) {
-
-            String embargoed = ClientManager.embargoMap.getOrDefault(player.getUUID(), "");
-
-            if (embargoed.contains(teamID)) {
-                event.setCanceled(true);
-            }
-        }
-        else {
-            // Server-side: gegen die authoritative Map prüfen
-            if (FactionEvents.recruitsDiplomacyManager.hasEmbargo(player.getUUID(), teamID)) {
-                event.setCanceled(true);
-                player.sendSystemMessage(
-                        Component.translatable("chat.recruits.text.embargoBlocked", target.getName().getString())
-                );
-            }
+        if (FactionEvents.recruitsDiplomacyManager.hasEmbargo(player.getUUID(), teamID)) {
+            event.setCanceled(true);
+            player.sendSystemMessage(
+                    Component.translatable("chat.recruits.text.embargoBlocked", target.getName().getString())
+            );
         }
     }
 
@@ -172,8 +154,8 @@ public class VillagerEvents {
             abstractRecruit.initSpawn();
             AbstractRecruitEntity.applyVariantFromVillager(abstractRecruit, villager);
 
-            for(ItemStack itemStack : villager.getInventory().items){
-                abstractRecruit.getInventory().addItem(itemStack);
+            for(int i = 0; i < villager.getInventory().getContainerSize(); i++){
+                abstractRecruit.getInventory().addItem(villager.getInventory().getItem(i));
             }
 
             if(abstractRecruit instanceof ICompanion){
@@ -204,8 +186,8 @@ public class VillagerEvents {
             AbstractRecruitEntity.applyVariantFromVillager(nobleEntity, villager);
             nobleEntity.setFollowState(0);
 
-            for(ItemStack itemStack : villager.getInventory().items){
-                nobleEntity.getInventory().addItem(itemStack);
+            for(int i = 0; i < villager.getInventory().getContainerSize(); i++){
+                nobleEntity.getInventory().addItem(villager.getInventory().getItem(i));
             }
 
             Component name = villager.getCustomName();
@@ -232,9 +214,9 @@ public class VillagerEvents {
         }
     }
 
-    public static void createHiredRecruitFromVillager(ServerLevel serverLevel, Villager villager, EntityType<? extends AbstractRecruitEntity> recruitType, Player player, RecruitsGroup group){
+    public static boolean createHiredRecruitFromVillager(ServerLevel serverLevel, Villager villager, EntityType<? extends AbstractRecruitEntity> recruitType, Player player, RecruitsGroup group, int price){
         AbstractRecruitEntity abstractRecruit = recruitType.create(villager.getCommandSenderWorld());
-        if(abstractRecruit == null) return;
+        if(abstractRecruit == null) return false;
 
         abstractRecruit.initSpawn();
         AbstractRecruitEntity.applyVariantFromVillager(abstractRecruit, villager);
@@ -243,13 +225,13 @@ public class VillagerEvents {
 
         if(name != null && !name.getString().isEmpty()) abstractRecruit.setCustomName(name);
 
-        if (CommandEvents.handleRecruiting(player, group, abstractRecruit, false)) {
+        if (CommandEvents.handleRecruiting(player, group, abstractRecruit, false, price)) {
             abstractRecruit.copyPosition(villager);
 
             abstractRecruit.setFollowState(1);
 
-            for(ItemStack itemStack : villager.getInventory().items){
-                abstractRecruit.getInventory().addItem(itemStack);
+            for(int i = 0; i < villager.getInventory().getContainerSize(); i++){
+                abstractRecruit.getInventory().addItem(villager.getInventory().getItem(i));
             }
 
             abstractRecruit.setGroupUUID(group.getUUID());
@@ -267,16 +249,18 @@ public class VillagerEvents {
             villager.releasePoi(MemoryModuleType.HOME);
             villager.releasePoi(MemoryModuleType.MEETING_POINT);
             villager.discard();
+            return true;
         }
+        return false;
     }
 
-    public static void spawnHiredRecruit(ServerLevel serverLevel, EntityType<? extends AbstractRecruitEntity> recruitType, Player player, RecruitsGroup group){
+    public static boolean spawnHiredRecruit(ServerLevel serverLevel, EntityType<? extends AbstractRecruitEntity> recruitType, Player player, RecruitsGroup group, int price){
         AbstractRecruitEntity abstractRecruit = recruitType.create(player.getCommandSenderWorld());
-        if(abstractRecruit == null) return;
+        if(abstractRecruit == null) return false;
 
         abstractRecruit.initSpawn();
 
-        if (CommandEvents.handleRecruiting(player, group, abstractRecruit, false)) {
+        if (CommandEvents.handleRecruiting(player, group, abstractRecruit, false, price)) {
             abstractRecruit.copyPosition(player);
 
             abstractRecruit.setFollowState(1);
@@ -290,12 +274,17 @@ public class VillagerEvents {
                 }
                 companion.applyRecruitValues(abstractRecruit);
             }
+            return true;
         }
+        return false;
     }
 
     @SubscribeEvent
     public void villagerTrades(VillagerTradesEvent event) {
-        if(!RecruitsServerConfig.ShouldProfessionBlocksTrade.get()) return;
+        if (!RecruitsServerConfig.SERVER.isLoaded()
+                || !RecruitsServerConfig.ShouldProfessionBlocksTrade.get()) {
+            return;
+        }
 
         if (event.getType() == VillagerProfession.ARMORER) {
             Trade block_trade = new Trade(Items.EMERALD, 15, ModBlocks.RECRUIT_SHIELD_BLOCK.get(), 1, 2, 20);
@@ -346,7 +335,6 @@ public class VillagerEvents {
 
         recruit.initSpawn();
 
-        villager.remove(Entity.RemovalReason.DISCARDED);
         recruit.getInventory().setItem(8, Items.BREAD.getDefaultInstance());
         villager.remove(Entity.RemovalReason.DISCARDED);
         villager.getCommandSenderWorld().addFreshEntity(recruit);
@@ -630,7 +618,7 @@ public class VillagerEvents {
 
         @Override
         public MerchantOffer getOffer(Entity entity, RandomSource random) {
-            return new MerchantOffer(new ItemStack(this.buyingItem, this.buyingAmount), new ItemStack(sellingItem, sellingAmount), maxUses, givenExp, priceMultiplier);
+            return new MerchantOffer(new ItemCost(this.buyingItem, this.buyingAmount), new ItemStack(sellingItem, sellingAmount), maxUses, givenExp, priceMultiplier);
         }
     }
 }

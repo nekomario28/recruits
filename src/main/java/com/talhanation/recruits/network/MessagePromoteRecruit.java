@@ -1,17 +1,19 @@
 package com.talhanation.recruits.network;
 
+import com.talhanation.recruits.Main;
 import com.talhanation.recruits.RecruitEvents;
+import com.talhanation.recruits.compat.workers.IVillagerWorker;
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessagePromoteRecruit implements Message<MessagePromoteRecruit> {
+public class MessagePromoteRecruit implements RecruitsMessage<MessagePromoteRecruit> {
 
     private UUID recruit;
     private int profession;
@@ -25,17 +27,34 @@ public class MessagePromoteRecruit implements Message<MessagePromoteRecruit> {
         this.name = name;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context){
-        Objects.requireNonNull(context.getSender()).getCommandSenderWorld().getEntitiesOfClass(
-                AbstractRecruitEntity.class,
-                context.getSender().getBoundingBox().inflate(16D),
-                livingEntity -> livingEntity.getUUID().equals(this.recruit)
-        ).forEach((recruit) -> RecruitEvents.promoteRecruit(recruit, profession, name, context.getSender()));
+    public void executeServerSide(RecruitsNetworkContext context){
+        ServerPlayer player = Objects.requireNonNull(context.getSender());
+        if (!RecruitEvents.entitiesByProfession.containsKey(this.profession)) {
+            return;
+        }
 
+        RecruitCommandTargetResolver.resolveOwnedRecruit(player, this.recruit, 16D, false)
+                .filter((recruit) -> canPromoteTo(recruit, this.profession))
+                .ifPresent((recruit) -> RecruitEvents.promoteRecruit(recruit, profession, name, player));
+    }
+
+    static boolean canPromote(AbstractRecruitEntity recruit) {
+        return recruit.getXpLevel() >= 3 || recruit instanceof IVillagerWorker;
+    }
+
+    static boolean canPromoteTo(AbstractRecruitEntity recruit, int profession) {
+        boolean worker = recruit instanceof IVillagerWorker;
+        return switch (profession) {
+            case 0, 1 -> worker || recruit.getXpLevel() >= 2;
+            case 2 -> (worker || recruit.getXpLevel() >= 3) && Main.isSiegeWeaponsLoaded && Main.isSiegeWeaponsCompatible;
+            case 3 -> (worker || recruit.getXpLevel() >= 5) && Main.isSmallShipsLoaded && Main.isSmallShipsCompatible;
+            case 4 -> worker || recruit.getXpLevel() >= 5;
+            default -> false;
+        };
     }
     public MessagePromoteRecruit fromBytes(FriendlyByteBuf buf) {
         this.recruit = buf.readUUID();

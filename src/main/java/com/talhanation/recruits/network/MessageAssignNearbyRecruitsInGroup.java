@@ -1,18 +1,19 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.RecruitEvents;
+import com.talhanation.recruits.command.RecruitCommandAuthority;
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
 import com.talhanation.recruits.world.RecruitsGroup;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessageAssignNearbyRecruitsInGroup implements Message<MessageAssignNearbyRecruitsInGroup> {
+public class MessageAssignNearbyRecruitsInGroup implements RecruitsMessage<MessageAssignNearbyRecruitsInGroup> {
 
     private UUID groupUUID;
 
@@ -23,13 +24,13 @@ public class MessageAssignNearbyRecruitsInGroup implements Message<MessageAssign
         this.groupUUID = group;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        RecruitsGroup newGroup = RecruitEvents.recruitsGroupsManager.getGroup(groupUUID);
+        RecruitsGroup newGroup = RecruitCommandAuthority.ownedGroup(player, groupUUID);
         if(newGroup == null) return;
 
         player.getCommandSenderWorld().getEntitiesOfClass(

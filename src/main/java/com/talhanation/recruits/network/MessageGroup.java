@@ -1,19 +1,19 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.RecruitEvents;
+import com.talhanation.recruits.command.RecruitCommandAuthority;
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
 import com.talhanation.recruits.world.RecruitsGroup;
-import de.maxhenkel.corelib.net.Message;
-import net.minecraft.nbt.CompoundTag;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessageGroup implements Message<MessageGroup> {
+public class MessageGroup implements RecruitsMessage<MessageGroup> {
 
     private UUID groupUUID;
     private UUID recruitUUID;
@@ -26,22 +26,20 @@ public class MessageGroup implements Message<MessageGroup> {
         this.recruitUUID = recruitUUID;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        player.getCommandSenderWorld().getEntitiesOfClass(
-                AbstractRecruitEntity.class,
-                player.getBoundingBox().inflate(100),
-                (recruit) -> recruit.getUUID().equals(this.recruitUUID)
-        ).forEach((recruit) -> this.setGroup(recruit, player, groupUUID));
+        RecruitCommandTargetResolver.resolveOwnedRecruit(player, this.recruitUUID, 100D)
+                .ifPresent((recruit) -> this.setGroup(recruit, player, groupUUID));
     }
 
     public void setGroup(AbstractRecruitEntity recruit, ServerPlayer player , UUID groupUUID){
         RecruitsGroup oldGroup = RecruitEvents.recruitsGroupsManager.getGroup(recruit.getGroup());
-        RecruitsGroup newGroup = RecruitEvents.recruitsGroupsManager.getGroup(groupUUID);
+        RecruitsGroup newGroup = RecruitCommandAuthority.ownedGroup(player, groupUUID);
+        if (newGroup == null) return;
         if(oldGroup != null && newGroup != null && oldGroup.getUUID().equals(newGroup.getUUID())) return;
 
         if(oldGroup != null) RecruitEvents.recruitsGroupsManager.removeMember(oldGroup.getUUID(), recruit.getUUID(), player.serverLevel());

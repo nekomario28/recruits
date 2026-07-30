@@ -1,27 +1,17 @@
 package com.talhanation.recruits.network;
 
-import com.talhanation.recruits.compat.siegeweapons.SiegeWeapon;
-import com.talhanation.recruits.compat.smallships.SmallShips;
-import com.talhanation.recruits.config.RecruitsServerConfig;
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
-import com.talhanation.recruits.entities.CaptainEntity;
-import com.talhanation.recruits.entities.SiegeEngineerEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.animal.horse.AbstractHorse;
-import net.minecraft.world.entity.vehicle.Boat;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.common.extensions.IForgeEntity;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.*;
-import java.util.function.Function;
-
-public class MessageMountEntityGui implements Message<MessageMountEntityGui> {
+public class MessageMountEntityGui implements RecruitsMessage<MessageMountEntityGui> {
     private UUID recruit;
     private boolean back;
 
@@ -33,23 +23,20 @@ public class MessageMountEntityGui implements Message<MessageMountEntityGui> {
         this.back = back;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
     @SuppressWarnings({"all"})
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
 
-        player.getCommandSenderWorld().getEntitiesOfClass(
-                AbstractRecruitEntity.class,
-                player.getBoundingBox().inflate(32.0D),
-                v -> v.getUUID().equals(this.recruit) && v.isAlive()
-        ).forEach(this::mount);
+        RecruitCommandTargetResolver.resolveOwnedRecruit(player, this.recruit, 32.0D)
+                .ifPresent(recruit -> this.mount(player, recruit));
     }
 
     @SuppressWarnings({"all"})
-    private void mount(AbstractRecruitEntity recruit) {
+    private void mount(ServerPlayer player, AbstractRecruitEntity recruit) {
         if (this.back && recruit.getMountUUID() != null) {
             recruit.shouldMount(true, recruit.getMountUUID());
         } else if (recruit.getVehicle() == null) {
@@ -71,7 +58,7 @@ public class MessageMountEntityGui implements Message<MessageMountEntityGui> {
             }
 
             if (horse == null) {
-                recruit.getOwner().sendSystemMessage(TEXT_NO_MOUNT(recruit.getName().getString()));
+                player.sendSystemMessage(TEXT_NO_MOUNT(recruit.getName().getString()));
                 return;
             }
 

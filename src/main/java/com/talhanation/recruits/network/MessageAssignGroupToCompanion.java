@@ -1,23 +1,24 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.RecruitEvents;
+import com.talhanation.recruits.command.RecruitCommandAuthority;
 import com.talhanation.recruits.entities.AbstractLeaderEntity;
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
 import com.talhanation.recruits.entities.ICompanion;
 import com.talhanation.recruits.util.NPCArmy;
 import com.talhanation.recruits.world.RecruitsGroup;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.List;
 import java.util.UUID;
 
-public class MessageAssignGroupToCompanion implements Message<MessageAssignGroupToCompanion> {
+public class MessageAssignGroupToCompanion implements RecruitsMessage<MessageAssignGroupToCompanion> {
 
     private UUID ownerUUID;
     private UUID companionUUID;
@@ -29,12 +30,13 @@ public class MessageAssignGroupToCompanion implements Message<MessageAssignGroup
         this.companionUUID = companionUUID;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer serverPlayer =  context.getSender();
+        if (serverPlayer == null || !serverPlayer.getUUID().equals(this.ownerUUID)) return;
         ServerLevel serverLevel =  serverPlayer.serverLevel();
 
         AbstractLeaderEntity companionEntity = null;
@@ -45,15 +47,15 @@ public class MessageAssignGroupToCompanion implements Message<MessageAssignGroup
         );
 
         for (LivingEntity companion : list){
-            if(companion.getUUID().equals(this.companionUUID)){
-                companionEntity = (AbstractLeaderEntity) companion;
+            if(companion.getUUID().equals(this.companionUUID) && companion instanceof AbstractLeaderEntity leader && RecruitCommandAuthority.canCommand(serverPlayer, leader)){
+                companionEntity = leader;
                 break;
             }
         }
         if(companionEntity == null) return;
 
 
-        RecruitsGroup group = RecruitEvents.recruitsGroupsManager.getGroup(companionEntity.getGroup());
+        RecruitsGroup group = RecruitCommandAuthority.ownedGroup(serverPlayer, companionEntity.getGroup());
         if(group == null) return;
 
         list.removeIf(living -> !(living instanceof AbstractRecruitEntity recruit)

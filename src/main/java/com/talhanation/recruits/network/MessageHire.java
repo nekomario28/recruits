@@ -1,19 +1,19 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.CommandEvents;
-import com.talhanation.recruits.RecruitEvents;
+import com.talhanation.recruits.command.RecruitCommandAuthority;
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
 import com.talhanation.recruits.world.RecruitsGroup;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessageHire implements Message<MessageHire> {
+public class MessageHire implements RecruitsMessage<MessageHire> {
 
     private UUID player;
     private UUID recruit;
@@ -28,17 +28,23 @@ public class MessageHire implements Message<MessageHire> {
         this.groupUUID = groupUUID;
     }
 
-    public Dist getExecutingSide()  {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide()  {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        RecruitsGroup group = RecruitEvents.recruitsGroupsManager.getGroup(groupUUID);
+        if (!player.getUUID().equals(this.player)) {
+            return;
+        }
+        RecruitsGroup group = RecruitCommandAuthority.ownedGroup(player, groupUUID);
+        if (group == null) {
+            return;
+        }
         player.getCommandSenderWorld().getEntitiesOfClass(
                 AbstractRecruitEntity.class,
                 player.getBoundingBox().inflate(16.0D),
-                v -> v.getUUID().equals(this.recruit) && v.isAlive()
+                v -> v.getUUID().equals(this.recruit) && v.isAlive() && !v.isOwned() && v.canBeHired()
         ).forEach(recruit -> CommandEvents.handleRecruiting(player, group, recruit, true));
     }
 

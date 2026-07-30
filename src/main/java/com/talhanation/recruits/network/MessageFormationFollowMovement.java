@@ -2,16 +2,17 @@ package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.CommandEvents;
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessageFormationFollowMovement implements Message<MessageFormationFollowMovement> {
+public class MessageFormationFollowMovement implements RecruitsMessage<MessageFormationFollowMovement> {
 
     private UUID player_uuid;
 
@@ -27,15 +28,15 @@ public class MessageFormationFollowMovement implements Message<MessageFormationF
         this.formation = formation;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context){
-        List<AbstractRecruitEntity> list = Objects.requireNonNull(context.getSender()).getCommandSenderWorld().getEntitiesOfClass(AbstractRecruitEntity.class, context.getSender().getBoundingBox().inflate(100));
-        list.removeIf(recruit -> !recruit.isEffectedByCommand(this.player_uuid, this.group));
+    public void executeServerSide(RecruitsNetworkContext context){
+        ServerPlayer player = Objects.requireNonNull(context.getSender());
+        List<AbstractRecruitEntity> list = RecruitCommandTargetResolver.resolveGroupTargets(player, this.player_uuid, this.group, 100D);
 
-        CommandEvents.applyFormation(formation, list, context.getSender(), context.getSender().position());
+        CommandEvents.applyFormation(formation, list, player, player.position());
     }
 
     public MessageFormationFollowMovement fromBytes(FriendlyByteBuf buf) {

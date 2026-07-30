@@ -1,17 +1,16 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.CommandEvents;
-import com.talhanation.recruits.entities.AbstractRecruitEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessageClearTargetGui implements Message<MessageClearTargetGui> {
+public class MessageClearTargetGui implements RecruitsMessage<MessageClearTargetGui> {
     private UUID recruit;
     private UUID player;
 
@@ -23,17 +22,17 @@ public class MessageClearTargetGui implements Message<MessageClearTargetGui> {
         this.recruit = recruit;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        player.getCommandSenderWorld().getEntitiesOfClass(
-                AbstractRecruitEntity.class,
-                player.getBoundingBox().inflate(16.0D),
-                (recruit) -> recruit.getUUID().equals(this.recruit)
-        ).forEach((recruit) -> CommandEvents.onClearTargetButton(this.player, recruit, null));
+        if (!player.getUUID().equals(this.player)) {
+            return;
+        }
+        RecruitCommandTargetResolver.resolveOwnedRecruit(player, this.recruit, 16.0D)
+                .ifPresent((recruit) -> CommandEvents.onClearTargetButton(player.getUUID(), recruit, null));
     }
 
     public MessageClearTargetGui fromBytes(FriendlyByteBuf buf) {
@@ -47,4 +46,3 @@ public class MessageClearTargetGui implements Message<MessageClearTargetGui> {
         buf.writeUUID(this.recruit);
     }
 }
-

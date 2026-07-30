@@ -1,17 +1,16 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.entities.MessengerEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessageAnswerMessenger implements Message<MessageAnswerMessenger> {
+public class MessageAnswerMessenger implements RecruitsMessage<MessageAnswerMessenger> {
 
     private UUID recruit;
     public MessageAnswerMessenger() {
@@ -20,29 +19,33 @@ public class MessageAnswerMessenger implements Message<MessageAnswerMessenger> {
         this.recruit = recruit;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context){
-        ServerPlayer player = context.getSender();
-        List<MessengerEntity> list = Objects.requireNonNull(context.getSender()).getCommandSenderWorld().getEntitiesOfClass(
+    public void executeServerSide(RecruitsNetworkContext context){
+        ServerPlayer player = Objects.requireNonNull(context.getSender());
+        for (MessengerEntity messenger : player.getCommandSenderWorld().getEntitiesOfClass(
                 MessengerEntity.class,
-                context.getSender().getBoundingBox().inflate(16D)
-        );
-        for (MessengerEntity messenger : list){
+                player.getBoundingBox().inflate(16D),
+                messenger -> messenger.getUUID().equals(this.recruit) && canAnswer(player, messenger)
+        )){
+            messenger.teleportWaitTimer = 100;
+            player.sendSystemMessage(messenger.MESSENGER_INFO_ON_MY_WAY());
+            messenger.giveDeliverItem(player);
 
-            if (messenger.getUUID().equals(this.recruit)){
-
-                messenger.teleportWaitTimer = 100;
-                context.getSender().sendSystemMessage(messenger.MESSENGER_INFO_ON_MY_WAY());
-                messenger.giveDeliverItem(player);
-
-                messenger.setMessengerState(MessengerEntity.MessengerState.TELEPORT_BACK);
-            }
+            messenger.setMessengerState(MessengerEntity.MessengerState.TELEPORT_BACK);
+            break;
         }
 
     }
+
+    private static boolean canAnswer(ServerPlayer player, MessengerEntity messenger) {
+        return !messenger.isTreatyMessenger()
+                && messenger.getTargetPlayerInfo() != null
+                && player.getUUID().equals(messenger.getTargetPlayerInfo().getUUID());
+    }
+
     public MessageAnswerMessenger fromBytes(FriendlyByteBuf buf) {
         this.recruit = buf.readUUID();
         return this;

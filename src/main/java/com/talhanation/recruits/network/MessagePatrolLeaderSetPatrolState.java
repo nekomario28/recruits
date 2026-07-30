@@ -1,16 +1,16 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.entities.AbstractLeaderEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessagePatrolLeaderSetPatrolState implements Message<MessagePatrolLeaderSetPatrolState> {
+public class MessagePatrolLeaderSetPatrolState implements RecruitsMessage<MessagePatrolLeaderSetPatrolState> {
     private UUID recruit;
     private byte state;
 
@@ -22,20 +22,26 @@ public class MessagePatrolLeaderSetPatrolState implements Message<MessagePatrolL
         this.state = state;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        player.getCommandSenderWorld().getEntitiesOfClass(
-                AbstractLeaderEntity.class,
-                player.getBoundingBox().inflate(64.0D),
-                v -> v.getUUID().equals(this.recruit) && v.isAlive()
-        ).forEach(this::setState);
+        if (!isValidPatrolState(this.state)) {
+            return;
+        }
+        RecruitCommandTargetResolver.resolveOwnedLeader(player, this.recruit, 64.0D)
+                .ifPresent(this::setState);
     }
 
-    public void setState(AbstractLeaderEntity leader) {
+    private static boolean isValidPatrolState(byte state) {
+        return state == AbstractLeaderEntity.State.PATROLLING.getIndex()
+                || state == AbstractLeaderEntity.State.PAUSED.getIndex()
+                || state == AbstractLeaderEntity.State.STOPPED.getIndex();
+    }
+
+    private void setState(AbstractLeaderEntity leader) {
         AbstractLeaderEntity.State leaderState = AbstractLeaderEntity.State.fromIndex(state);
         switch (leaderState) {
             case PATROLLING -> leader.setFollowState(0);

@@ -1,5 +1,9 @@
 package com.talhanation.recruits.client.events;
 
+import net.neoforged.neoforge.client.event.ModelEvent;
+
+import net.neoforged.bus.api.SubscribeEvent;
+
 
 import com.talhanation.recruits.Main;
 import com.talhanation.recruits.client.models.RecruitVillagerModel;
@@ -11,30 +15,23 @@ import com.talhanation.recruits.config.RecruitsClientConfig;
 import com.talhanation.recruits.init.ModEntityTypes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.ModelLayerLocation;
-import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.entity.EntityRenderers;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.api.distmarker.OnlyIn;
-import net.minecraftforge.client.event.EntityRenderersEvent;
-import net.minecraftforge.client.event.ModelEvent;
-import net.minecraftforge.client.event.TextureStitchEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 
 import javax.annotation.Nullable;
 
-@Mod.EventBusSubscriber(modid = Main.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD , value = Dist.CLIENT)
 public class ClientEvent {
 
-    public static ModelLayerLocation RECRUIT = new ModelLayerLocation(new ResourceLocation(Main.MOD_ID + "recruit"), "recruit");
-    public static ModelLayerLocation RECRUIT_OUTER_ARMOR = new ModelLayerLocation(new ResourceLocation(Main.MOD_ID + "recruit_outer_layer"), "recruit_outer_layer");
-    public static ModelLayerLocation RECRUIT_INNER_ARMOR = new ModelLayerLocation(new ResourceLocation(Main.MOD_ID + "recruit_inner_layer"), "recruit_inner_layer");
+    public static ModelLayerLocation RECRUIT = new ModelLayerLocation(ResourceLocation.fromNamespaceAndPath(Main.MOD_ID, "recruit"), "recruit");
+    public static ModelLayerLocation RECRUIT_OUTER_ARMOR = new ModelLayerLocation(ResourceLocation.fromNamespaceAndPath(Main.MOD_ID, "recruit_outer_layer"), "recruit_outer_layer");
+    public static ModelLayerLocation RECRUIT_INNER_ARMOR = new ModelLayerLocation(ResourceLocation.fromNamespaceAndPath(Main.MOD_ID, "recruit_inner_layer"), "recruit_inner_layer");
 
-    @SubscribeEvent
     @OnlyIn(Dist.CLIENT)
     public static void entityRenderersEvent(EntityRenderersEvent.RegisterRenderers event){
         if(RecruitsClientConfig.RecruitsLookLikeVillagers.get()){
@@ -79,7 +76,6 @@ public class ClientEvent {
         }
     }
 
-    @SubscribeEvent
     public static void layerDefinitions(EntityRenderersEvent.RegisterLayerDefinitions event) {
         event.registerLayerDefinition(ClientEvent.RECRUIT, RecruitVillagerModel::createLayerDefinition);
         event.registerLayerDefinition(ClientEvent.RECRUIT_OUTER_ARMOR, RecruitArmorLayer::createOuterArmorLayer);
@@ -90,13 +86,6 @@ public class ClientEvent {
     @SubscribeEvent
     public static void modelBakingCompleted(ModelEvent.BakingCompleted event) {
         WorldMapCacheManager.getInstance().onClientModelsReloaded();
-    }
-
-    @SubscribeEvent
-    public static void textureStitchCompleted(TextureStitchEvent.Post event) {
-        if (TextureAtlas.LOCATION_BLOCKS.equals(event.getAtlas().location())) {
-            WorldMapCacheManager.getInstance().onClientBlockAtlasStitched();
-        }
     }
 
     @Nullable

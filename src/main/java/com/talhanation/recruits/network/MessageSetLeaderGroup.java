@@ -1,24 +1,23 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.RecruitEvents;
-import com.talhanation.recruits.entities.AbstractLeaderEntity;
+import com.talhanation.recruits.command.RecruitCommandAuthority;
 import com.talhanation.recruits.world.RecruitsGroup;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import javax.annotation.Nullable;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Client → Server: assigns a group UUID to a leader entity so the
  * subsequent {@link MessageAssignGroupToCompanion} knows which group to use.
  */
-public class MessageSetLeaderGroup implements Message<MessageSetLeaderGroup> {
+public class MessageSetLeaderGroup implements RecruitsMessage<MessageSetLeaderGroup> {
 
     private UUID leaderUUID;
     @Nullable
@@ -32,23 +31,19 @@ public class MessageSetLeaderGroup implements Message<MessageSetLeaderGroup> {
     }
 
     @Override
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
     @Override
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        player.serverLevel().getEntitiesOfClass(
-                AbstractLeaderEntity.class,
-                player.getBoundingBox().inflate(100D),
-                leader -> leader.getUUID().equals(this.leaderUUID) && leader.isAlive()
-        ).forEach(leader -> {
+        RecruitCommandTargetResolver.resolveOwnedLeader(player, this.leaderUUID, 100D).ifPresent(leader -> {
             if (groupUUID == null) {
                 leader.setGroupUUID(null);
                 return;
             }
-            RecruitsGroup group = RecruitEvents.recruitsGroupsManager.getGroup(groupUUID);
+            RecruitsGroup group = RecruitCommandAuthority.ownedGroup(player, groupUUID);
             if (group == null) return;
             leader.setGroupUUID(group.getUUID());
             RecruitEvents.recruitsGroupsManager.broadCastGroupsToPlayer(player);

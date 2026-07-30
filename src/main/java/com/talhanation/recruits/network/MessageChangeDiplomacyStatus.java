@@ -3,14 +3,17 @@ package com.talhanation.recruits.network;
 import com.talhanation.recruits.FactionEvents;
 import com.talhanation.recruits.world.RecruitsDiplomacyManager;
 import com.talhanation.recruits.world.RecruitsFaction;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
+
+import java.util.Objects;
 
 
-public class MessageChangeDiplomacyStatus implements Message<MessageChangeDiplomacyStatus> {
+public class MessageChangeDiplomacyStatus implements RecruitsMessage<MessageChangeDiplomacyStatus> {
     private String ownTeam;
     private String otherTeam;
     private byte status;
@@ -24,14 +27,28 @@ public class MessageChangeDiplomacyStatus implements Message<MessageChangeDiplom
         this.otherTeam = otherTeam.getStringID();
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context){
+    public void executeServerSide(RecruitsNetworkContext context){
+        ServerPlayer player = Objects.requireNonNull(context.getSender());
+        if (!FactionNetworkAuthority.isLeaderOf(player, ownTeam)) {
+            return;
+        }
+        if (ownTeam.equals(otherTeam)) {
+            return;
+        }
+        if (FactionEvents.recruitsFactionManager.getFactionByStringID(otherTeam) == null) {
+            return;
+        }
+        if (this.status < RecruitsDiplomacyManager.DiplomacyStatus.NEUTRAL.getByteValue()
+                || this.status > RecruitsDiplomacyManager.DiplomacyStatus.ENEMY.getByteValue()) {
+            return;
+        }
         RecruitsDiplomacyManager.DiplomacyStatus status = RecruitsDiplomacyManager.DiplomacyStatus.fromByte(this.status);
 
-        FactionEvents.recruitsDiplomacyManager.setRelation(ownTeam, otherTeam, status, (ServerLevel) context.getSender().getCommandSenderWorld());
+        FactionEvents.recruitsDiplomacyManager.setRelation(ownTeam, otherTeam, status, (ServerLevel) player.getCommandSenderWorld());
 
     }
     public MessageChangeDiplomacyStatus fromBytes(FriendlyByteBuf buf) {

@@ -1,18 +1,20 @@
 package com.talhanation.recruits.network;
 
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+
 import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.client.gui.worldmap.storage.WorldMapCacheManager;
 import com.talhanation.recruits.client.gui.worldmap.storage.WorldMapStorageId;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.api.distmarker.OnlyIn;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
 
 import java.util.UUID;
 
-public class MessageToClientWorldMapIdentity implements Message<MessageToClientWorldMapIdentity> {
+public class MessageToClientWorldMapIdentity implements RecruitsMessage<MessageToClientWorldMapIdentity> {
     private UUID worldId;
 
     public MessageToClientWorldMapIdentity() {
@@ -23,15 +25,14 @@ public class MessageToClientWorldMapIdentity implements Message<MessageToClientW
     }
 
     @Override
-    public Dist getExecutingSide() {
-        return Dist.CLIENT;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.CLIENTBOUND;
     }
 
     @Override
     @OnlyIn(Dist.CLIENT)
-    public void executeClientSide(NetworkEvent.Context context) {
+    public void executeClientSide(RecruitsNetworkContext context) {
         if (worldId == null) return;
-
         WorldMapStorageId.setServerWorldId(worldId);
         Minecraft mc = Minecraft.getInstance();
         if (mc.level != null) {

@@ -1,17 +1,16 @@
 package com.talhanation.recruits.network;
 
-import com.talhanation.recruits.entities.AbstractLeaderEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.Objects;
 import java.util.UUID;
 
 
-public class MessagePatrolLeaderSetCycle implements Message<MessagePatrolLeaderSetCycle> {
+public class MessagePatrolLeaderSetCycle implements RecruitsMessage<MessagePatrolLeaderSetCycle> {
 
     private UUID recruit;
     private boolean cycle;
@@ -24,17 +23,14 @@ public class MessagePatrolLeaderSetCycle implements Message<MessagePatrolLeaderS
         this.cycle = cycle;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        player.getCommandSenderWorld().getEntitiesOfClass(
-                AbstractLeaderEntity.class,
-                player.getBoundingBox().inflate(100.0D),
-                (leader) -> leader.getUUID().equals(this.recruit)
-        ).forEach(leader -> leader.setCycle(this.cycle));
+        RecruitCommandTargetResolver.resolveOwnedLeader(player, this.recruit, 100.0D)
+                .ifPresent(leader -> leader.setCycle(this.cycle));
     }
 
     public MessagePatrolLeaderSetCycle fromBytes(FriendlyByteBuf buf) {

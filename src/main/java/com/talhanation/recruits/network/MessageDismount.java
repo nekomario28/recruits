@@ -1,17 +1,16 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.CommandEvents;
-import com.talhanation.recruits.entities.AbstractRecruitEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessageDismount implements Message<MessageDismount> {
+public class MessageDismount implements RecruitsMessage<MessageDismount> {
 
     private UUID uuid;
     private UUID group;
@@ -25,16 +24,14 @@ public class MessageDismount implements Message<MessageDismount> {
 
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context){
+    public void executeServerSide(RecruitsNetworkContext context){
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        player.getCommandSenderWorld().getEntitiesOfClass(
-                AbstractRecruitEntity.class,
-                context.getSender().getBoundingBox().inflate(100)
-        ).forEach((recruit) -> CommandEvents.onDismountButton(uuid, recruit, group));
+        RecruitCommandTargetResolver.resolveGroupTargets(player, this.uuid, this.group, 100D)
+                .forEach((recruit) -> CommandEvents.onDismountButton(player.getUUID(), recruit, group));
     }
     public MessageDismount fromBytes(FriendlyByteBuf buf) {
         this.uuid = buf.readUUID();

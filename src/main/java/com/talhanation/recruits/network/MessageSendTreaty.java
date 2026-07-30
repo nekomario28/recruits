@@ -1,18 +1,20 @@
 package com.talhanation.recruits.network;
 
+import com.talhanation.recruits.FactionEvents;
 import com.talhanation.recruits.entities.MessengerEntity;
+import com.talhanation.recruits.world.RecruitsFaction;
 import com.talhanation.recruits.world.RecruitsPlayerInfo;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessageSendTreaty implements Message<MessageSendTreaty> {
+public class MessageSendTreaty implements RecruitsMessage<MessageSendTreaty> {
 
     private UUID recruit;
     private boolean start;
@@ -35,31 +37,47 @@ public class MessageSendTreaty implements Message<MessageSendTreaty> {
     }
 
     @Override
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
     @Override
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        player.getCommandSenderWorld().getEntitiesOfClass(
-                MessengerEntity.class,
-                player.getBoundingBox().inflate(16D),
-                (messenger) -> messenger.getUUID().equals(this.recruit)
-        ).forEach((messenger) -> {
-            if (messenger.getUUID().equals(this.recruit)) {
+        if (this.durationHours < 0) {
+            return;
+        }
+        RecruitsPlayerInfo targetPlayer = RecruitsPlayerInfo.getFromNBT(this.targetPlayerNbt);
+        if (!isFactionLeader(targetPlayer)) {
+            return;
+        }
+        RecruitsFaction senderFaction = FactionNetworkAuthority.leaderFaction(player);
+        if (senderFaction == null) {
+            return;
+        }
+        RecruitCommandTargetResolver.resolveOwnedRecruit(player, this.recruit, 16D, false)
+                .filter(messenger -> messenger instanceof MessengerEntity)
+                .map(messenger -> (MessengerEntity) messenger)
+                .filter(messenger -> messenger.getTeam() != null && messenger.getTeam().getName().equals(senderFaction.getStringID()))
+                .ifPresent((messenger) -> {
+                    if (!this.targetPlayerNbt.isEmpty()) {
+                        messenger.setTargetPlayerInfo(targetPlayer);
+                    }
 
-                if (!this.targetPlayerNbt.isEmpty()) {
-                    messenger.setTargetPlayerInfo(RecruitsPlayerInfo.getFromNBT(this.targetPlayerNbt));
-                }
+                    if (start) {
+                        messenger.setTreatyDurationHours(this.durationHours);
+                        messenger.setIsTreatyMessenger(true);
+                        messenger.start();
+                    }
+                });
+    }
 
-                if (start) {
-                    messenger.setTreatyDurationHours(this.durationHours);
-                    messenger.setIsTreatyMessenger(true);
-                    messenger.start();
-                }
-            }
-        });
+    private static boolean isFactionLeader(RecruitsPlayerInfo playerInfo) {
+        if (playerInfo == null || playerInfo.getFaction() == null) {
+            return false;
+        }
+        RecruitsFaction faction = FactionEvents.recruitsFactionManager.getFactionByStringID(playerInfo.getFaction().getStringID());
+        return faction != null && playerInfo.getUUID().equals(faction.getTeamLeaderUUID());
     }
 
     @Override

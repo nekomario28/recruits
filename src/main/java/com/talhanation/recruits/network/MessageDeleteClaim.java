@@ -1,50 +1,51 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.ClaimEvents;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 import com.talhanation.recruits.world.RecruitsClaim;
-import de.maxhenkel.corelib.net.Message;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.Level;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.server.level.ServerPlayer;
 
 import java.util.UUID;
 
-
-public class MessageDeleteClaim implements Message<MessageDeleteClaim> {
-
+public class MessageDeleteClaim implements RecruitsMessage<MessageDeleteClaim> {
     private UUID claimId;
 
-    public MessageDeleteClaim(){
-
+    public MessageDeleteClaim() {
     }
 
     public MessageDeleteClaim(RecruitsClaim claim) {
         this.claimId = claim == null ? null : claim.getUUID();
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    @Override
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context){
-        if (this.claimId == null || context.getSender() == null) return;
-        if (context.getSender().level().dimension() != Level.OVERWORLD) return;
+    @Override
+    public void executeServerSide(RecruitsNetworkContext context) {
+        ServerPlayer player = context.getSender();
+        if (player == null || this.claimId == null) return;
+        RecruitsClaim claim = ClaimNetworkAuthority.claimByUuid(this.claimId);
+        if (claim == null || !ClaimNetworkAuthority.isCreativeAdmin(player)) return;
 
-        ClaimEvents.recruitsClaimManager.removeClaim(
-                (ServerLevel) context.getSender().getCommandSenderWorld(),
-                this.claimId);
+        ClaimEvents.recruitsClaimManager.removeClaim(claim);
+        ClaimEvents.recruitsClaimManager.broadcastClaimsToAll((ServerLevel) player.getCommandSenderWorld());
     }
+
+    @Override
     public MessageDeleteClaim fromBytes(FriendlyByteBuf buf) {
         this.claimId = buf.readBoolean() ? buf.readUUID() : null;
         return this;
     }
 
+    @Override
     public void toBytes(FriendlyByteBuf buf) {
         buf.writeBoolean(this.claimId != null);
-        if (this.claimId != null) {
-            buf.writeUUID(this.claimId);
-        }
+        if (this.claimId != null) buf.writeUUID(this.claimId);
     }
 }

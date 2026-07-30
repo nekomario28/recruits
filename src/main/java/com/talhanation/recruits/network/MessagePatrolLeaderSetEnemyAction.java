@@ -1,16 +1,16 @@
 package com.talhanation.recruits.network;
 
 import com.talhanation.recruits.entities.AbstractLeaderEntity;
-import de.maxhenkel.corelib.net.Message;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public class MessagePatrolLeaderSetEnemyAction implements Message<MessagePatrolLeaderSetEnemyAction> {
+public class MessagePatrolLeaderSetEnemyAction implements RecruitsMessage<MessagePatrolLeaderSetEnemyAction> {
 
     private UUID recruit;
     private byte action; // 0 = CHARGE, 1 = HOLD, 2 = KEEP_PATROLLING
@@ -22,17 +22,17 @@ public class MessagePatrolLeaderSetEnemyAction implements Message<MessagePatrolL
         this.action = action;
     }
 
-    public Dist getExecutingSide() {
-        return Dist.DEDICATED_SERVER;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.SERVERBOUND;
     }
 
-    public void executeServerSide(NetworkEvent.Context context) {
+    public void executeServerSide(RecruitsNetworkContext context) {
         ServerPlayer player = Objects.requireNonNull(context.getSender());
-        player.getCommandSenderWorld().getEntitiesOfClass(
-                AbstractLeaderEntity.class,
-                player.getBoundingBox().inflate(100.0D),
-                leader -> leader.getUUID().equals(this.recruit) && leader.isAlive()
-        ).forEach(leader -> leader.setEnemyAction(this.action));
+        if (this.action < AbstractLeaderEntity.EnemyAction.CHARGE.getIndex() || this.action > AbstractLeaderEntity.EnemyAction.KEEP_PATROLLING.getIndex()) {
+            return;
+        }
+        RecruitCommandTargetResolver.resolveOwnedLeader(player, this.recruit, 100.0D)
+                .ifPresent(leader -> leader.setEnemyAction(AbstractLeaderEntity.EnemyAction.fromIndex(this.action).getIndex()));
     }
 
     public MessagePatrolLeaderSetEnemyAction fromBytes(FriendlyByteBuf buf) {

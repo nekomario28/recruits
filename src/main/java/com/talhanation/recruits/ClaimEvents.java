@@ -1,5 +1,7 @@
 package com.talhanation.recruits;
 
+import com.talhanation.recruits.network.compat.RecruitsPacketDistributor;
+
 import com.talhanation.recruits.config.RecruitsServerConfig;
 import com.talhanation.recruits.entities.AbstractRecruitEntity;
 import com.talhanation.recruits.entities.VillagerNobleEntity;
@@ -21,7 +23,6 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.schedule.Activity;
 import net.minecraft.world.item.BucketItem;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.DaylightDetectorBlock;
 import net.minecraft.world.level.block.DiodeBlock;
@@ -31,18 +32,16 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.EntityJoinLevelEvent;
-import net.minecraftforge.event.entity.player.FillBucketEvent;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.event.level.BlockEvent;
-import net.minecraftforge.event.level.ExplosionEvent;
-import net.minecraftforge.event.level.LevelEvent;
-import net.minecraftforge.event.server.ServerStartingEvent;
-import net.minecraftforge.event.server.ServerStoppingEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.network.PacketDistributor;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.event.level.BlockEvent;
+import net.neoforged.neoforge.event.level.ExplosionEvent;
+import net.neoforged.neoforge.event.level.LevelEvent;
+import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.bus.api.SubscribeEvent;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -85,14 +84,14 @@ public class ClaimEvents {
 
         if(event.getEntity() instanceof ServerPlayer player){
             ServerLevel overworld = player.getServer().overworld();
-            Main.SIMPLE_CHANNEL.send(PacketDistributor.PLAYER.with(() -> player),
+            Main.SIMPLE_CHANNEL.send(RecruitsPacketDistributor.PLAYER.with(() -> player),
                     new MessageToClientWorldMapIdentity(RecruitsWorldSaveData.get(overworld).getWorldId()));
             recruitsClaimManager.sendClaimsTo(player);
         }
     }
 
     @SubscribeEvent
-    public void onServerTick(TickEvent.ServerTickEvent event){
+    public void onServerTick(ServerTickEvent.Post event){
         if(event.getServer().overworld().isClientSide()) return;
 
         siegeCounter++;
@@ -154,7 +153,7 @@ public class ClaimEvents {
 
             // SiegeEvent.Tick feuern – cancelable, Addons können Damage überschreiben
             com.talhanation.recruits.SiegeEvent.Tick tickEvent = new com.talhanation.recruits.SiegeEvent.Tick(claim, level, attackerSize, defenderSize, baseDamage);
-            MinecraftForge.EVENT_BUS.post(tickEvent);
+            NeoForge.EVENT_BUS.post(tickEvent);
 
             if(!tickEvent.isCanceled()){
                 claim.setHealth(claim.getHealth() - tickEvent.getDamage());
@@ -463,9 +462,9 @@ public class ClaimEvents {
         }
     }
     @SubscribeEvent
-    public void onExplosion(ExplosionEvent event) {
+    public void onExplosion(ExplosionEvent.Start event) {
         if(event.getLevel().isClientSide()) return;
-        Vec3 vec = event.getExplosion().getPosition();
+        Vec3 vec = event.getExplosion().center();
         BlockPos pos = new BlockPos((int) vec.x, (int) vec.y, (int) vec.z);
         ChunkAccess access = server.overworld().getChunk(pos);
         RecruitsClaim claim = recruitsClaimManager.getClaim(access.getPos());
@@ -480,28 +479,6 @@ public class ClaimEvents {
         }
     }
     @SubscribeEvent
-    public void onBucketInteract(FillBucketEvent event) {
-        if(event.getLevel().isClientSide()) return;
-        if(event.getTarget() == null) return;
-
-        Vec3 vec = event.getTarget().getLocation();
-        BlockPos pos = new BlockPos((int) vec.x, (int) vec.y, (int) vec.z);
-
-        ChunkAccess access = server.overworld().getChunk(pos);
-        RecruitsClaim claim = recruitsClaimManager.getClaim(access.getPos());
-        if(claim == null) return;
-
-        Player player = event.getEntity();
-
-        if(player.isCreative() && player.hasPermissions(2)){
-            return;
-        }
-
-        boolean isInTeam = player.getTeam() != null && player.getTeam().getName().equals(claim.getOwnerFactionStringID());
-        if(!isInTeam) event.setCanceled(true);
-    }
-
-    @SubscribeEvent
     public void onBlockInteract(PlayerInteractEvent.RightClickBlock event) {
         if(event.getLevel().isClientSide()) return;
         ChunkAccess access = server.overworld().getChunk(event.getPos());
@@ -512,6 +489,12 @@ public class ClaimEvents {
         Player player = event.getEntity();
 
         if(player.isCreative() && player.hasPermissions(2)){
+            return;
+        }
+
+        boolean isInTeam = player.getTeam() != null && player.getTeam().getName().equals(claim.getOwnerFactionStringID());
+        if(event.getItemStack().getItem() instanceof BucketItem && !isInTeam) {
+            event.setCanceled(true);
             return;
         }
 
@@ -534,10 +517,7 @@ public class ClaimEvents {
                 || (blockEntity instanceof Container)
         )
         {
-            {
-                boolean isInTeam = player.getTeam() != null && player.getTeam().getName().equals(claim.getOwnerFactionStringID());
-                if(!isInTeam) event.setCanceled(true);
-            }
+            if(!isInTeam) event.setCanceled(true);
         }
     }
 

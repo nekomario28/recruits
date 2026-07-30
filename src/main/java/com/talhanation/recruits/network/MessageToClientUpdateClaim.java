@@ -1,18 +1,20 @@
 package com.talhanation.recruits.network;
 
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+
 import com.talhanation.recruits.client.ClientManager;
 import com.talhanation.recruits.client.api.ClientClaimEvent;
 import com.talhanation.recruits.client.gui.worldmap.claim.WorldMapClaimIndex;
 import com.talhanation.recruits.network.codec.ClaimNetworkCodec;
+import com.talhanation.recruits.network.compat.RecruitsMessage;
+import com.talhanation.recruits.network.compat.RecruitsNetworkContext;
 import com.talhanation.recruits.world.RecruitsClaim;
-import de.maxhenkel.corelib.net.Message;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.api.distmarker.OnlyIn;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.network.NetworkEvent;
+import net.minecraft.network.protocol.PacketFlow;
+import net.neoforged.neoforge.common.NeoForge;
 
-public class MessageToClientUpdateClaim implements Message<MessageToClientUpdateClaim> {
+public class MessageToClientUpdateClaim implements RecruitsMessage<MessageToClientUpdateClaim> {
     private RecruitsClaim claim;
 
     public MessageToClientUpdateClaim() {
@@ -23,20 +25,19 @@ public class MessageToClientUpdateClaim implements Message<MessageToClientUpdate
     }
 
     @Override
-    public Dist getExecutingSide() {
-        return Dist.CLIENT;
+    public PacketFlow getExecutingSide() {
+        return PacketFlow.CLIENTBOUND;
     }
 
     @Override
     @OnlyIn(Dist.CLIENT)
-    public void executeClientSide(NetworkEvent.Context context) {
-        this.updateOrAddClaim(claim);
+    public void executeClientSide(RecruitsNetworkContext context) {
+        updateOrAddClaim(this.claim);
     }
 
     @OnlyIn(Dist.CLIENT)
     private void updateOrAddClaim(RecruitsClaim newClaim) {
         if (newClaim == null) return;
-
         if (newClaim.isRemoved) {
             removeClaim(newClaim);
             return;
@@ -47,18 +48,11 @@ public class MessageToClientUpdateClaim implements Message<MessageToClientUpdate
             if (existing.getUUID().equals(newClaim.getUUID())) {
                 ClientManager.recruitsClaims.set(i, newClaim);
                 WorldMapClaimIndex.invalidate();
-
                 boolean isCurrentClaim = ClientManager.currentClaim != null
                         && ClientManager.currentClaim.getUUID().equals(newClaim.getUUID());
-
-                // Aktuellen Claim-Zeiger ebenfalls aktualisieren
-                if (isCurrentClaim) {
-                    ClientManager.currentClaim = newClaim;
-                }
-
+                if (isCurrentClaim) ClientManager.currentClaim = newClaim;
                 ClientManager.updateActiveSiege(newClaim);
-
-                MinecraftForge.EVENT_BUS.post(new ClientClaimEvent.DataUpdated(newClaim, isCurrentClaim));
+                NeoForge.EVENT_BUS.post(new ClientClaimEvent.DataUpdated(newClaim, isCurrentClaim));
                 return;
             }
         }
@@ -66,32 +60,27 @@ public class MessageToClientUpdateClaim implements Message<MessageToClientUpdate
         ClientManager.recruitsClaims.add(newClaim);
         WorldMapClaimIndex.invalidate();
         ClientManager.updateActiveSiege(newClaim);
-        MinecraftForge.EVENT_BUS.post(
-                new ClientClaimEvent.DataUpdated(newClaim, false));
+        NeoForge.EVENT_BUS.post(new ClientClaimEvent.DataUpdated(newClaim, false));
     }
 
     @OnlyIn(Dist.CLIENT)
     private void removeClaim(RecruitsClaim removedClaim) {
         boolean wasCurrentClaim = ClientManager.currentClaim != null
                 && ClientManager.currentClaim.getUUID().equals(removedClaim.getUUID());
-
         ClientManager.recruitsClaims.removeIf(
                 claim -> claim != null && claim.getUUID().equals(removedClaim.getUUID()));
         ClientManager.activeSiegeClaims.remove(removedClaim.getUUID());
-        if (wasCurrentClaim) {
-            ClientManager.currentClaim = null;
-        }
-
+        if (wasCurrentClaim) ClientManager.currentClaim = null;
         WorldMapClaimIndex.invalidate();
-        MinecraftForge.EVENT_BUS.post(new ClientClaimEvent.DataUpdated(removedClaim, wasCurrentClaim));
+        NeoForge.EVENT_BUS.post(new ClientClaimEvent.DataUpdated(removedClaim, wasCurrentClaim));
     }
 
     @Override
     public MessageToClientUpdateClaim fromBytes(FriendlyByteBuf buf) {
         this.claim = ClaimNetworkCodec.readNullableClaim(buf);
-
         return this;
     }
+
     @Override
     public void toBytes(FriendlyByteBuf buf) {
         ClaimNetworkCodec.writeNullableClaim(buf, this.claim);
